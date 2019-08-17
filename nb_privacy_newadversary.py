@@ -94,7 +94,7 @@ def show_maps(x, y,npoints=100):
         ax[1].scatter(grid[:,:,1].numpy(),grid[:,:,0].numpy(),c=y_predicted_rss.numpy())
 
 
-def THEWHOLETHING(sigma):
+def THEWHOLETHING(sigma, UTILITY_CONSTRAINT):
 
     SIGMA = sigma
 
@@ -266,18 +266,13 @@ def THEWHOLETHING(sigma):
         noise = torch.normal(mean=torch.zeros_like(x),std=SIGMA).double()
         y = x + noise
 
-    def entirely_joint_privatizer(x, firstcall=False, PROB_DISTR=None):
-        if firstcall:
-            prob_distr = gaussian_kde(chania_dataset[:]['x'].numpy().squeeze().T)
-            cf = len(chania_dataset)**(-NUM_FEATURES/(1+4))
-            prob_distr.covariance_factor = lambda : cf
-            prob_distr._compute_covariance()
-            PROB_DISTR = prob_distr
-        y = PROB_DISTR.resample(128).T
+    PROB_DISTR = gaussian_kde(chania_dataset.augmented_data.values.T)
+    def zero_MI_privatizer(prob_distr):
+        y = prob_distr.resample(128).T
         y = torch.DoubleTensor(y.reshape(BATCH_SIZE,1,NUM_FEATURES))
-        return y, PROB_DISTR
+        return y
 
-    PRIVATIZER = dp_privatizer
+    PRIVATIZER = zero_MI_privatizer
 
     with open(RESULT_FILENAME, "a") as fd:
         if PRIVATIZER == gap_privatizer:
@@ -304,11 +299,16 @@ def THEWHOLETHING(sigma):
                 gap_privatizer_optimizer.zero_grad()
 
             # privatize x
-            if PRIVATIZER == entirely_joint_privatizer:
-                if epoch == 0 and i == 0:
-                    y, PROB_DISTR = entirely_joint_privatizer(x,firstcall=True)
-                else:
-                    y, _ = entirely_joint_privatizer(x, PROB_DISTR)
+            if PRIVATIZER == zero_MI_privatizer:
+                y = zero_MI_privatizer(PROB_DISTR)
+                ploss = privatizer_loss(x,y, None, None)
+                ebreak = 0
+                while ploss >= UTILITY_CONSTRAINT and ebreak < 100:
+                    ebreak += 1
+                    y = zero_MI_privatizer(PROB_DISTR)
+                    ploss = privatizer_loss(x,y, None, None)
+                if ebreak == 100:
+                    count += 1
 
             elif PRIVATIZER == dp_privatizer:
                 y = dp_privatizer(x,sigma)
@@ -347,7 +347,12 @@ def THEWHOLETHING(sigma):
             # stop early
             if i == 0:
                 pass
+            if i == 2434:
+                break
     print("done")
+    print("done")
+    if PRIVATIZER == zero_MI_privatizer:
+        print(count, "out of", i, "failed to meet utility constraint")
 
     with torch.no_grad():
         with open(RESULT_FILENAME, "a") as fd:
@@ -357,7 +362,6 @@ def THEWHOLETHING(sigma):
             fd.write(", ")
 
     test_epochs=2
-
     # do not keep track of gradients
     with torch.no_grad():
         correct = 0
@@ -374,8 +378,14 @@ def THEWHOLETHING(sigma):
                 x, u = batch['x'], batch['u'].squeeze()
 
                 # privatize x
-                if PRIVATIZER == entirely_joint_privatizer:
-                    y, _ = entirely_joint_privatizer(x, PROB_DISTR)
+                if PRIVATIZER == zero_MI_privatizer:
+                    y = zero_MI_privatizer(PROB_DISTR)
+                    ploss = privatizer_loss(x,y, None, None)
+                    ebreak = 0
+                    while ploss >= UTILITY_CONSTRAINT and ebreak < 100:
+                        ebreak += 1
+                        y = zero_MI_privatizer(PROB_DISTR)
+                        ploss = privatizer_loss(x,y, None, None)
                 elif PRIVATIZER == dp_privatizer:
                     y = dp_privatizer(x,sigma)
                 else:
@@ -404,9 +414,11 @@ def THEWHOLETHING(sigma):
                 l4 += (cx-cy).pow(2).mean().item()/BATCH_SIZE
                 l6 += density_loss(x,y).item()
 
-                # stop early
-                if i==1:
-                    break
+            # stop early
+            if i == 100:
+                pass
+            if i == 1042:
+                break
 
         if PRIVATIZER == gap_privatizer:
             print("RHO=",RHO)
@@ -414,6 +426,8 @@ def THEWHOLETHING(sigma):
             print("SIGMA=",SIGMA)
         elif PRIVATIZER == dp_privatizer:
             print("EPSILON=",EPSILON,"DELTA=",DELTA,"NORM_CLIP=",NORM_CLIP)
+        elif PRIVATIZER == zero_MI_privatizer:
+            print("UTILITY CONSTRAINT=", UTILITY_CONSTRAINT)
         print("")
 
         print("Adversary Accuracy:", 100*correct/total)
@@ -449,7 +463,7 @@ if __name__ == "__main__":
     NUM_USERS = 9
     NUM_EPOCHS = 4
 
-    # EPSILON = 0.01
+    EPSILON = 0.01
     DELTA = 0.00001
     NORM_CLIP = 7.154
 
@@ -487,5 +501,6 @@ if __name__ == "__main__":
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-    for EPSILON in [1,2,3,4,5,6,7,8,9,10]:
-        THEWHOLETHING(SIGMA)
+    # for UTILITY_CONSTRAINT in [0.1,0.25,0.5,1,2,3,4,5,6,7,8,9,10]:
+    for UTILITY_CONSTRAINT in [1]:
+        THEWHOLETHING(SIGMA, UTILITY_CONSTRAINT)

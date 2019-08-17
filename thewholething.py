@@ -15,10 +15,10 @@ from datetime import datetime
 import random
 
 RESULT_FILENAME = "freshresults.csv"
-new_ = False
+new_ = True
 
 # for EPSILON in [1,2,3,4,5,6,7,8,9,10]:
-for CODEBOOK_SIZE in [10, 50, 100, 500, 1000]:
+for CODEBOOK_SIZE in [100]:
 
     if new_:
         with open(RESULT_FILENAME, "a") as fd:
@@ -36,7 +36,7 @@ for CODEBOOK_SIZE in [10, 50, 100, 500, 1000]:
 
     FILENAME = 'augmented_data.csv'
 
-    BATCH_SIZE = 128
+    BATCH_SIZE = 16
     TRAIN_SPLIT = 0.7
 
     NUM_FEATURES = 24
@@ -56,7 +56,7 @@ for CODEBOOK_SIZE in [10, 50, 100, 500, 1000]:
     UTILITY_CONSTRAINT = 0.15
 
     # rho of 1 is all utility, 0 is all privacy
-    UTILITY_WEIGHTS = (2,1,1,1)
+    UTILITY_WEIGHTS = (1,1,1,1)
     PRIVACY_WEIGHTS =(1,1)
 
     MAP_PARAMS = 2
@@ -289,7 +289,7 @@ for CODEBOOK_SIZE in [10, 50, 100, 500, 1000]:
         else: # if not given adversary estimate, just utility losses
             l6 = density_loss(x,y)
             w1,w2,w3,w4 = UTILITY_WEIGHTS
-            total_loss = RHO*(w1*l1+w2*l2+w3*l3+w4*l6)
+            total_loss = (w1*l1+w2*l2+w3*l3+w4*l6)
             return 10*total_loss
 
 
@@ -404,7 +404,6 @@ for CODEBOOK_SIZE in [10, 50, 100, 500, 1000]:
 
     adversary_optimizer = optim.Adam(adversary.parameters(),lr=0.001, betas=(0.9,0.999))
 
-
     # ## Define privatizers
 
     # #### GAP
@@ -497,14 +496,14 @@ for CODEBOOK_SIZE in [10, 50, 100, 500, 1000]:
     PROB_DISTR = gaussian_kde(chania_dataset.augmented_data.values.T)
     codebook = {}
     for i in range(CODEBOOK_SIZE):
-        y = PROB_DISTR.resample(128).T
+        y = PROB_DISTR.resample(BATCH_SIZE).T
         y = torch.DoubleTensor(y.reshape(BATCH_SIZE,1,NUM_FEATURES))
         codebook[y] = None
 
     def MI_privatizer(x, codebook):
         for y in codebook.keys():
             codebook[y] = privatizer_loss(x,y,None,None)
-        best = min(codebook, key=codebook.get)
+        best = random.choices(list(codebook.keys()), codebook.values())[0]
         return best, codebook[best]
 
     # PRIVATIZER = dp_privatizer
@@ -582,7 +581,7 @@ for CODEBOOK_SIZE in [10, 50, 100, 500, 1000]:
                 print(i+1,"aloss:",aloss.item(),"ploss:",ploss.item())
 
             # stop early
-            if i == 10:
+            if i == 200:
                 pass
             if i == 2434:
                 break
@@ -605,7 +604,7 @@ for CODEBOOK_SIZE in [10, 50, 100, 500, 1000]:
     # In[41]:
 
 
-    test_epochs=2
+    test_epochs=1
 
     # do not keep track of gradients
     with torch.no_grad():
@@ -688,3 +687,5 @@ for CODEBOOK_SIZE in [10, 50, 100, 500, 1000]:
                 fd.write(", ")
             fd.write(str(l4/(i+1)))
             fd.write("\n")
+
+        print(codebook.values())
