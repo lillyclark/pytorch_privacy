@@ -328,7 +328,7 @@ def test(test_loader, test_epochs, PRIVATIZER, gap_privatizer_optimizer, gap_pri
     return 100*correct/total, loc_error/(i+1)/test_epochs, l1/(i+1)/test_epochs, l2/(i+1)/test_epochs, l3/(i+1)/test_epochs, l4/(i+1)/test_epochs
 
 if __name__ == '__main__':
-    RESULT_FILENAME = "freshresults.csv"
+    RESULT_FILENAME = "results.csv"
     FILENAME = 'sample_augmented_data.csv'
 
     BATCH_SIZE = 16
@@ -368,7 +368,12 @@ if __name__ == '__main__':
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
 
-    print("baseline experiment")
+    experiment_name = "baseline experiment"
+    print(experiment_name)
+    with open(RESULT_FILENAME, "a") as fd:
+        fd.write(experiment_name)
+        fd.write("\n")
+
     # uncomment one of these chunks to run a test
 
     # PRIVATIZER = "MI_privatizer"
@@ -379,14 +384,14 @@ if __name__ == '__main__':
     # SIGMA, RHO, CODEBOOK_SIZE = 0, 0, 0
     # for EPSILON in [1,2,3,4,5,6,7,8,9,10]:
 
-    # PRIVATIZER = "noise_privatizer"
-    # EPSILON, RHO, CODEBOOK_SIZE = 0, 0, 0
-    # for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
+    PRIVATIZER = "noise_privatizer"
+    EPSILON, RHO, CODEBOOK_SIZE = 0, 0, 0
+    for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
 
-    # rho of 0 is private, 1 is useful
-    PRIVATIZER = "gap_privatizer"
-    EPSILON, SIGMA, CODEBOOK_SIZE = 0, 0, 0
-    for RHO in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
+    ### rho of 0 is private, 1 is useful
+    # PRIVATIZER = "gap_privatizer"
+    # EPSILON, SIGMA, CODEBOOK_SIZE = 0, 0, 0
+    # for RHO in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
 
         adversary, adversary_optimizer = make_adversary(NUM_FEATURES, NUM_UNITS, NUM_USERS)
         gap_privatizer, gap_privatizer_optimizer = make_gap_privatizer(NUM_FEATURES, NUM_UNITS)
@@ -397,15 +402,33 @@ if __name__ == '__main__':
         train(NUM_EPOCHS, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_optimizer, codebook, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary_optimizer, adversary, adversary_loss, BATCH_SIZE)
         acc, loc_error, map_error, distortion, dist_error, density_error = test(test_loader, TEST_EPOCHS, PRIVATIZER, gap_privatizer_optimizer, gap_privatizer, codebook, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary, MAP_PARAMS, NUM_GRIDS, BATCH_SIZE)
 
-        if PRIVATIZER == "gap_privatizer":
-            print(PRIVATIZER,"RHO=",RHO)
-        elif PRIVATIZER == "noise_privatizer":
-            print(PRIVATIZER,"SIGMA=",SIGMA)
-        elif PRIVATIZER == "dp_privatizer":
-            print(PRIVATIZER,"EPSILON=",EPSILON)
-        elif PRIVATIZER == "MI_privatizer":
-            print(PRIVATIZER,"CODEBOOK SIZE=", CODEBOOK_SIZE)
+        with open(RESULT_FILENAME, "a") as fd:
+            fd.write(PRIVATIZER)
+            fd.write(",")
+            if PRIVATIZER == "gap_privatizer":
+                print(PRIVATIZER,"RHO=",RHO)
+                fd.write(str(RHO))
+            elif PRIVATIZER == "noise_privatizer":
+                print(PRIVATIZER,"SIGMA=",SIGMA)
+                fd.write(str(SIGMA))
+            elif PRIVATIZER == "dp_privatizer":
+                print(PRIVATIZER,"EPSILON=",EPSILON)
+                fd.write(str(EPSILON))
+            elif PRIVATIZER == "MI_privatizer":
+                print(PRIVATIZER,"CODEBOOK SIZE=", CODEBOOK_SIZE)
+                fd.write(str(CODEBOOK_SIZE))
 
-        print("Privacy Metrics:", acc, loc_error)
-        print("Utility Metrics:", map_error, distortion, dist_error, density_error)
-        print(" ")
+            print("Privacy Metrics:", acc, loc_error)
+            fd.write(str(acc))
+            fd.write(",")
+            fd.write(str(loc_error))
+            fd.write(",")
+            print("Utility Metrics:", map_error, distortion, dist_error, density_error)
+            fd.write(str(map_error))
+            fd.write(",")
+            fd.write(str(distortion))
+            fd.write(",")
+            fd.write(str(dist_error))
+            fd.write(",")
+            fd.write(str(density_error))
+            fd.write(",")
