@@ -17,9 +17,8 @@ import random
 class ChaniaDataset(Dataset):
     def __init__(self, csv_file, num_features, transform=None, normalize=True):
         self.num_features = num_features
-        self.augmented_data = pd.read_csv(csv_file, header=0, usecols = [0]+list(range(2,21))+list(range(22,26)),
-                                          converters={0:lambda x: datestr2num(x)})
-        self.userlabels = pd.read_csv(csv_file, header=0, usecols=["iPhoneUID"],converters={"iPhoneUID": lambda x: userID[x]})
+        self.augmented_data = pd.read_csv(csv_file, usecols = [0]+list(range(2,num_features+1)))
+        self.userlabels = pd.read_csv(csv_file, usecols=[0])
         self.transform = transform
 
         if normalize:
@@ -50,62 +49,16 @@ class ToTensor(object):
 def poly(degree, long, lat):
     return torch.cat([long**i*lat**(degree-i) for degree in range(degree+1) for i in range(degree,-1,-1)],1)
 
-def signal_map_params(x,degree):
-    polynomial = poly(degree, x[:,:,13], x[:,:,12])
+def signal_map_params(x,degree, n):
+    polynomial = poly(degree, x[:,:,[2+3*i for i in range(n)]].reshape(-1,1),x[:,:,[1+3*i for i in range(n)]].reshape(-1,1))
     beta = torch.mm(torch.inverse(torch.mm(torch.transpose(polynomial,0,1), polynomial)),
-                  torch.mm(torch.transpose(polynomial,0,1), x[:,:,6]))
+                  torch.mm(torch.transpose(polynomial,0,1), x[:,:,[0+3*i for i in range(n)]].reshape(-1,1)))
     return beta
-
-def density_count(x, num_grids):
-    count = torch.zeros(num_grids,num_grids)
-    x1min=torch.min(x[:,:,13])
-    x2min=torch.min(x[:,:,12])
-    size1 = torch.max(x[:,:,13])-x1min
-    size2 = torch.max(x[:,:,12])-x2min
-    a_all = []
-    c_all = []
-    for i in range(num_grids):
-        for j in range(num_grids):
-            a = x1min+(size1/num_grids*i)
-            a_all.append(a)
-            b = x1min+(size1/num_grids*(i+1))
-            a_all.append(b)
-            c = x2min+(size2/num_grids*j)
-            c_all.append(c)
-            d = x2min+(size2/num_grids*(j+1))
-            c_all.append(d)
-            if i == num_grids-1 and j != num_grids-1:
-                count[i][j] += x[(x[:,:,13] >= a ) &
-                                 (x[:,:,13] <= b) &
-                                 (x[:,:,12] >= c) &
-                                 (x[:,:,12] < d)].size(0)
-            elif j == num_grids-1 and i != num_grids-1:
-                count[i][j] += x[(x[:,:,13] >= a ) &
-                                 (x[:,:,13] < b) &
-                                 (x[:,:,12] >= c) &
-                                 (x[:,:,12] <= d)].size(0)
-            elif j == num_grids-1 and i == num_grids-1:
-                count[i][j] += x[(x[:,:,13] >= a ) &
-                                 (x[:,:,13] <= b) &
-                                 (x[:,:,12] >= c) &
-                                 (x[:,:,12] <= d)].size(0)
-            else:
-                count[i][j] += x[(x[:,:,13] >= a ) &
-                                 (x[:,:,13] < b) &
-                                 (x[:,:,12] >= c) &
-                                 (x[:,:,12] < d)].size(0)
-    return count, torch.unique(torch.Tensor(a_all)), torch.unique(torch.Tensor(c_all))
-
-def density_loss(x,y, batch_size):
-    a = (100*torch.clamp(x[:,:,12],0,0.01).sum() - 100*torch.clamp(y[:,:,12],0,0.01).sum())**2
-    b = (-100*torch.clamp(x[:,:,12],-0.01,0).sum() - -100*torch.clamp(y[:,:,12],-0.01,0).sum())**2
-    c = (100*torch.clamp(x[:,:,13],0,0.01).sum() - 100*torch.clamp(y[:,:,13],0,0.01).sum())**2
-    d = (-100*torch.clamp(x[:,:,13],-0.01,0).sum() - -100*torch.clamp(y[:,:,13],-0.01,0).sum())**2
-    return (a+b+c+d)/batch_size
 
 def init_weights(m):
     if type(m) == torch.nn.Linear:
-        torch.nn.init.normal_(m.weight, mean=0, std=0.3)
+        torch.nn.init.normal_(m.weight, mean=0, std=0.01)
+        torch.nn.init.normal_(m.bias,mean=0.25, std=0.1)
         # m.bias.data.fill_(2)
 
 def analytical_gaussian_sigma(eta, epsilon, delta):
@@ -133,48 +86,44 @@ def analytical_gaussian_sigma(eta, epsilon, delta):
 
 ## LOSS FUNCTIONS
 
-def make_privatizer_loss(map_params, num_grids, batch_size, utility_weights, rho):
+def make_privatizer_loss(map_params, num_grids, batch_size, utility_weights, rho, n):
     def privatizer_loss(x,y,u,uhat):
-        bx = signal_map_params(x,map_params)
-        by = signal_map_params(y,map_params)
+        bx = signal_map_params(x,map_params,n)
+        by = signal_map_params(y,map_params,n)
         l1 = (bx-by).pow(2).mean()
         l2 = (x-y).pow(2).mean()
-        l3 = (y[:,:,12:14]-x[:,:,12:14]).pow(2).mean()
-        cx,_,_ = density_count(x,num_grids)
-        cy,_,_ = density_count(y, num_grids)
-        l4 = (cx-cy).pow(2).mean()/batch_size
+        l3 = (y[:,:,[1+3*i for i in range(n)] + [2+3*i for i in range(n)]]-x[:,:,[1+3*i for i in range(n)] + [2+3*i for i in range(n)]]).pow(2).mean()
         if u is not None:
             l = torch.nn.CrossEntropyLoss()
             l5 = l(uhat,u)
-            l6 = density_loss(x,y, batch_size)
-            w1,w2,w3,w4 = utility_weights
-            total_loss = rho*(w1*l1+w2*l2+w3*l3+w4*l6)-(1-rho)*l5
+            w1,w2,w3 = utility_weights
+            total_loss = rho*(w1*l1+w2*l2+w3*l3)-(1-rho)*l5
             return total_loss
         else: # if not given adversary estimate, just utility losses
-            l6 = density_loss(x,y, batch_size)
-            w1,w2,w3,w4 = utility_weights
-            total_loss = (w1*l1+w2*l2+w3*l3+w4*l6)
+            w1,w2,w3 = utility_weights
+            total_loss = (w1*l1+w2*l2+w3*l3)
             return total_loss
     return privatizer_loss
 
-def make_adversary_loss(privacy_weights):
+def make_adversary_loss(privacy_weights, n):
     def adversary_loss(u,x,uhat,lochat):
         l = torch.nn.CrossEntropyLoss()
-        dist = (x[:,:,12:14].squeeze()-lochat).pow(2).mean()
-        # spread = (x[:,:,12:14].squeeze().std(dim=0)-lochat.std(dim=0)).pow(2).mean()
+        dist = (x[:,:,[1+3*i for i in range(n)] + [2+3*i for i in range(n)]]-lochat).pow(2).mean()
         w1, w2 = privacy_weights
         return w1*l(uhat,u)+w2*dist
     return adversary_loss
 
 ## ADVERSARY
 
-def make_adversary(num_features, num_units, num_users):
+def make_adversary(num_features, num_units, num_users, num_points_per_entry):
     adversary = torch.nn.Sequential(
         torch.nn.Linear(num_features, num_units),
         torch.nn.ReLU(),
         torch.nn.Linear(num_units, num_units),
         torch.nn.ReLU(),
-        torch.nn.Linear(num_units, num_users+2)
+        torch.nn.Linear(num_units, num_units),
+        torch.nn.ReLU(),
+        torch.nn.Linear(num_units, num_users+2*num_points_per_entry)
     )
     # adversary.apply(init_weights)
     adversary.double()
@@ -189,9 +138,11 @@ def make_gap_privatizer(num_features, num_units):
         torch.nn.ReLU(),
         torch.nn.Linear(num_units, num_units),
         torch.nn.ReLU(),
+        torch.nn.Linear(num_units, num_units),
+        torch.nn.ReLU(),
         torch.nn.Linear(num_units, num_features)
     )
-    gap_privatizer.apply(init_weights)
+    # gap_privatizer.apply(init_weights)
     gap_privatizer.double()
     gap_privatizer_optimizer = optim.Adam(gap_privatizer.parameters(),lr=0.002, betas=(0.9,0.999))
     return gap_privatizer, gap_privatizer_optimizer
@@ -269,12 +220,12 @@ def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_o
                 gap_privatizer_optimizer.step()
 
             # print progress
-            if i % 500 == 499:
-                print(i+1,"aloss:",aloss.item(),"ploss:",ploss.item())
+            # if i % 10 == 9:
+                # print(i+1,"aloss:",aloss.item(),"ploss:",ploss.item())
 
     print("done", i)
 
-def test(test_loader, test_epochs, PRIVATIZER, gap_privatizer_optimizer, gap_privatizer, codebook, privatizer_loss, sigma_dp, norm_clip, sigma_gaussian, adversary, map_params, num_grids, batch_size, num_users):
+def test(test_loader, test_epochs, PRIVATIZER, gap_privatizer_optimizer, gap_privatizer, codebook, privatizer_loss, sigma_dp, norm_clip, sigma_gaussian, adversary, map_params, num_grids, batch_size, num_users, n):
     correct = 0
     total = 0
     loc_error = 0
@@ -310,42 +261,39 @@ def test(test_loader, test_epochs, PRIVATIZER, gap_privatizer_optimizer, gap_pri
             _, upred = torch.max(uhat.data,1)
             total+=u.size(0)
             correct+=(upred==u).sum().item()
-            loc_error += (x[:,:,12:14].squeeze()-lochat).pow(2).mean().item()
+            loc_error = (x[:,:,[1+3*i for i in range(n)] + [2+3*i for i in range(n)]]-lochat).pow(2).mean().item()
 
             # Utility Metrics
             l = torch.nn.CrossEntropyLoss()
             l5 += l(uhat,u).item()
-            bx = signal_map_params(x,map_params)
-            by = signal_map_params(y,map_params)
+            bx = signal_map_params(x,map_params,n)
+            by = signal_map_params(y,map_params,n)
             l1 += (bx-by).pow(2).mean().item()
             l2 += (y-x).pow(2).mean().item()
-            l3 += (y[:,:,12:14]-x[:,:,12:14]).pow(2).mean().item()
-            cx,_,_ = density_count(x,num_grids)
-            cy,_,_ = density_count(y,num_grids)
-            l4 += (cx-cy).pow(2).mean().item()/batch_size
-            l6 += density_loss(x,y, batch_size).item()
+            l3 = (y[:,:,[1+3*i for i in range(n)] + [2+3*i for i in range(n)]]-x[:,:,[1+3*i for i in range(n)] + [2+3*i for i in range(n)]]).pow(2).mean()
 
-    return 100*correct/total, loc_error/(i+1)/test_epochs, l1/(i+1)/test_epochs, l2/(i+1)/test_epochs, l3/(i+1)/test_epochs, l4/(i+1)/test_epochs
+    return 100*correct/total, loc_error/(i+1)/test_epochs, l1/(i+1)/test_epochs, l2/(i+1)/test_epochs, l3/(i+1)/test_epochs
 
 if __name__ == '__main__':
-    RESULT_FILENAME = "results.csv"
-    FILENAME = '../sample_augmented_data.csv'
+    RESULT_FILENAME = "results_trace.csv"
+    FILENAME = '../daytabase_no_shuffle.csv'
 
     BATCH_SIZE = 16
     TRAIN_SPLIT = 0.7
 
-    NUM_FEATURES = 24
-    NUM_UNITS = 32
+    NUM_POINTS_PER_ENTRY = 150
+    NUM_FEATURES = 3*NUM_POINTS_PER_ENTRY
+    NUM_UNITS = 512
     NUM_USERS = 9
-    NUM_EPOCHS = 5
+    NUM_EPOCHS = 30
     TEST_EPOCHS = 2
 
     DELTA = 0.00001
-    NORM_CLIP=7.154
+    NORM_CLIP=10 #todo
 
-    UTILITY_WEIGHTS = (1,1,1,1)
+    UTILITY_WEIGHTS = (1,1,1)
     PRIVACY_WEIGHTS =(1,1)
-    MAP_PARAMS = 2 # todo
+    MAP_PARAMS = 2
     NUM_GRIDS = 16
 
     userID = {
@@ -386,21 +334,22 @@ if __name__ == '__main__':
 
     PRIVATIZER = "noise_privatizer"
     EPSILON, RHO, CODEBOOK_SIZE = 0, 0, 0
-    for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
+    # for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
+    for SIGMA in [0,1]:
 
     ### rho of 0 is private, 1 is useful
     # PRIVATIZER = "gap_privatizer"
     # EPSILON, SIGMA, CODEBOOK_SIZE = 0, 0, 0
     # for RHO in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
 
-        adversary, adversary_optimizer = make_adversary(NUM_FEATURES, NUM_UNITS, NUM_USERS)
+        adversary, adversary_optimizer = make_adversary(NUM_FEATURES, NUM_UNITS, NUM_USERS, NUM_POINTS_PER_ENTRY)
         gap_privatizer, gap_privatizer_optimizer = make_gap_privatizer(NUM_FEATURES, NUM_UNITS)
         codebook = make_codebook(CODEBOOK_SIZE, BATCH_SIZE, NUM_FEATURES)
-        privatizer_loss = make_privatizer_loss(MAP_PARAMS, NUM_GRIDS, BATCH_SIZE, UTILITY_WEIGHTS, RHO)
-        adversary_loss = make_adversary_loss(PRIVACY_WEIGHTS)
+        privatizer_loss = make_privatizer_loss(MAP_PARAMS, NUM_GRIDS, BATCH_SIZE, UTILITY_WEIGHTS, RHO, NUM_POINTS_PER_ENTRY)
+        adversary_loss = make_adversary_loss(PRIVACY_WEIGHTS, NUM_POINTS_PER_ENTRY)
         sigma_dp = analytical_gaussian_sigma(NORM_CLIP, EPSILON, DELTA)
         train(NUM_EPOCHS, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_optimizer, codebook, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary_optimizer, adversary, adversary_loss, BATCH_SIZE, NUM_USERS)
-        acc, loc_error, map_error, distortion, dist_error, density_error = test(test_loader, TEST_EPOCHS, PRIVATIZER, gap_privatizer_optimizer, gap_privatizer, codebook, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary, MAP_PARAMS, NUM_GRIDS, BATCH_SIZE, NUM_USERS)
+        acc, loc_error, map_error, distortion, dist_error = test(test_loader, TEST_EPOCHS, PRIVATIZER, gap_privatizer_optimizer, gap_privatizer, codebook, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary, MAP_PARAMS, NUM_GRIDS, BATCH_SIZE, NUM_USERS, NUM_POINTS_PER_ENTRY)
 
         with open(RESULT_FILENAME, "a") as fd:
             fd.write(PRIVATIZER)
@@ -424,12 +373,10 @@ if __name__ == '__main__':
             fd.write(",")
             fd.write(str(loc_error))
             fd.write(",")
-            print("Utility Metrics:", map_error, distortion, dist_error, density_error)
+            print("Utility Metrics:", map_error, distortion, dist_error)
             fd.write(str(map_error))
             fd.write(",")
             fd.write(str(distortion))
             fd.write(",")
             fd.write(str(dist_error))
-            fd.write(",")
-            fd.write(str(density_error))
             fd.write("\n")

@@ -1,0 +1,12 @@
+baseline experiment
+baseline experiment
+baseline experiment
+baseline experiment
+baseline experiment
+noise_privatizer,0,8.333333333333334,tensor(0.0185, dtype=torch.float64, grad_fn=<DivBackward0>),0.0,0.0,tensor(0., dtype=torch.float64)
+noise_privatizer,1,7.638888888888889,tensor(0.0222, dtype=torch.float64, grad_fn=<DivBackward0>),0.06199541675356293,0.9464211689818132,tensor(0.0267, dtype=torch.float64)
+baseline experiment
+noise_privatizer,0,9.375,0.01641783259228181,0.0,0.0,tensor(0., dtype=torch.float64)
+noise_privatizer,1,9.54861111111111,0.017338244633688073,0.11419103159502257,0.9466452186856744,tensor(0.0256, dtype=torch.float64)
+baseline experiment
+noise_privatizer,0,58.333333333333336,0.022281772873473375,0.0,0.0,tensor(0., dtype=torch.float64)
