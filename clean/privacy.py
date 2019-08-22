@@ -255,14 +255,13 @@ def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_o
 
             # train adversary
             aloss = adversary_loss(u,x,uhat,lochat)
-            aloss.backward(retain_graph=True)
+            aloss.backward(retain_graph=True) # to do: is this necessary?
             torch.nn.utils.clip_grad_norm_(adversary.parameters(), 1000)
             adversary_optimizer.step()
 
-            # evaluate utility loss
-            ploss = privatizer_loss(x,y,u,uhat)
-
             if PRIVATIZER == "gap_privatizer":
+                # evaluate utility loss
+                ploss = privatizer_loss(x,y,u,uhat)
                 # train privatizer
                 ploss.backward()
                 torch.nn.utils.clip_grad_norm_(gap_privatizer.parameters(), 1000)
@@ -270,6 +269,8 @@ def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_o
 
             # print progress
             if i % 500 == 499:
+                # evaluate utility loss
+                ploss = privatizer_loss(x,y,u,uhat)
                 print(i+1,"aloss:",aloss.item(),"ploss:",ploss.item())
 
     print("done", i)
@@ -387,6 +388,7 @@ if __name__ == '__main__':
     PRIVATIZER = "noise_privatizer"
     EPSILON, RHO, CODEBOOK_SIZE = 0, 0, 0
     for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
+    # for SIGMA in [0]:
 
     ### rho of 0 is private, 1 is useful
     # PRIVATIZER = "gap_privatizer"
