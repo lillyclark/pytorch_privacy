@@ -14,6 +14,10 @@ from scipy.stats import gaussian_kde
 from datetime import datetime
 import random
 
+# CUDA0 = torch.cuda.device('cuda:0')
+torch.cuda.init()
+CUDA0 = torch.device('cuda:0')
+
 class ChaniaDataset(Dataset):
     def __init__(self, csv_file, num_features, transform=None, normalize=True):
         self.num_features = num_features
@@ -24,6 +28,9 @@ class ChaniaDataset(Dataset):
 
         if normalize:
             self.augmented_data=(self.augmented_data-self.augmented_data.mean())/self.augmented_data.std()
+        
+        self.tensor_data = torch.from_numpy(self.augmented_data.values).cuda()        
+        self.tensor_labels = torch.from_numpy(self.userlabels.values).cuda()
 
     def __len__(self):
         return len(self.augmented_data)
@@ -31,19 +38,25 @@ class ChaniaDataset(Dataset):
     def __getitem__(self, idx):
         if type(idx) == torch.Tensor:
             idx = idx.item()
-        data = self.augmented_data.iloc[idx].values
-        data = data.astype('float').reshape(-1,self.num_features)
-        user = self.userlabels.iloc[idx].values
-        user = user.astype('int').reshape(-1,1)
+        #data = self.augmented_data.iloc[idx].values
+        #data = data.astype('float').reshape(-1,self.num_features)
+        data = self.tensor_data[idx]
+        data = data.view(-1,self.num_features)
+        
+        #user = self.userlabels.iloc[idx].values
+        user = self.tensor_labels[idx]
+        # user = user.astype('long').reshape(-1,1)
+        user = user.view(-1,1)
         sample = {'x':data, 'u':user}
-        if self.transform:
-            sample = self.transform(sample)
+        # if self.transform:
+        #     sample = self.transform(sample)
         return sample
 
 class ToTensor(object):
     def __call__(self, sample):
         data, user = sample['x'], sample['u']
-        return {'x':torch.from_numpy(data), 'u':torch.from_numpy(user)}
+        # return {'x':torch.from_numpy(data).to(device=CUDA0), 'u':torch.from_numpy(user).to(device=CUDA0)}
+        return {'x':torch.from_numpy(data).cuda(), 'u':torch.from_numpy(user).cuda()}
 
 ## HELPER FUNCTIONS
 
@@ -57,7 +70,8 @@ def signal_map_params(x,degree):
     return beta
 
 def density_count(x, num_grids):
-    count = torch.zeros(num_grids,num_grids)
+    # count = torch.zeros(num_grids,num_grids).to(device=CUDA0)
+    count = torch.zeros(num_grids,num_grids).cuda()
     x1min=torch.min(x[:,:,13])
     x2min=torch.min(x[:,:,12])
     size1 = torch.max(x[:,:,13])-x1min
@@ -94,7 +108,8 @@ def density_count(x, num_grids):
                                  (x[:,:,13] < b) &
                                  (x[:,:,12] >= c) &
                                  (x[:,:,12] < d)].size(0)
-    return count, torch.unique(torch.Tensor(a_all)), torch.unique(torch.Tensor(c_all))
+    #return count, torch.unique(torch.Tensor(a_all).to(device=CUDA0)), torch.unique(torch.Tensor(c_all).to(device=CUDA0))
+    return count, torch.unique(torch.Tensor(a_all).cuda()), torch.unique(torch.Tensor(c_all).cuda())
 
 def density_loss(x,y, batch_size):
     a = (100*torch.clamp(x[:,:,12],0,0.01).sum() - 100*torch.clamp(y[:,:,12],0,0.01).sum())**2
@@ -163,6 +178,7 @@ def make_adversary_loss(privacy_weights):
         dist = (x[:,:,12:14].squeeze()-lochat).pow(2).mean()
         # spread = (x[:,:,12:14].squeeze().std(dim=0)-lochat.std(dim=0)).pow(2).mean()
         w1, w2 = privacy_weights
+        # u = u.long()
         return w1*l(uhat,u)+w2*dist
     return adversary_loss
 
@@ -177,6 +193,8 @@ def make_adversary(num_features, num_units, num_users):
         torch.nn.Linear(num_units, num_users+2)
     )
     # adversary.apply(init_weights)
+    adversary.benchmark = True
+    adversary.cuda()
     adversary.double()
     adversary_optimizer = optim.Adam(adversary.parameters(),lr=0.001, betas=(0.9,0.999))
     return adversary, adversary_optimizer
@@ -191,6 +209,7 @@ def make_gap_privatizer(num_features, num_units):
         torch.nn.ReLU(),
         torch.nn.Linear(num_units, num_features)
     )
+    gap_privatizer.cuda()
     gap_privatizer.apply(init_weights)
     gap_privatizer.double()
     gap_privatizer_optimizer = optim.Adam(gap_privatizer.parameters(),lr=0.002, betas=(0.9,0.999))
@@ -201,12 +220,14 @@ def dp_privatizer(x,s, norm_clip):
     scalevec = norm_clip/normvec
     scalevec[scalevec>1] = 1
     x = torch.transpose(torch.transpose(x,0,1)*scalevec,0,1).double()
-    noise = torch.normal(mean=torch.zeros_like(x),std=s).double()
+    # noise = torch.normal(mean=torch.zeros_like(x),std=s).double().to(device=CUDA0)
+    noise = torch.normal(mean=torch.zeros_like(x),std=s).cuda().double()
     y = x + noise
     return y
 
 def noise_privatizer(x, sigma):
-    noise = torch.normal(mean=torch.zeros_like(x),std=sigma).double()
+    #noise = torch.normal(mean=torch.zeros_like(x),std=sigma).double().to(device=CUDA0)
+    noise = torch.normal(mean=torch.zeros_like(x),std=sigma).cuda().double()
     y = x + noise
     return y
 
@@ -215,7 +236,8 @@ def make_codebook(codebook_size, batch_size, num_features):
     codebook = {}
     for i in range(codebook_size):
         y = prob_distr.resample(batch_size).T
-        y = torch.DoubleTensor(y.reshape(batch_size,1,num_features))
+        # y = torch.DoubleTensor(y.reshape(batch_size,1,num_features)).to(device=CUDA0)
+        y = torch.DoubleTensor(y.reshape(batch_size,1,num_features)).cuda()
         codebook[y] = None
     return codebook
 
@@ -260,9 +282,8 @@ def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_o
             adversary_optimizer.step()
 
             # evaluate utility loss
-            ploss = privatizer_loss(x,y,u,uhat)
-
             if PRIVATIZER == "gap_privatizer":
+                ploss = privatizer_loss(x,y,u,uhat)
                 # train privatizer
                 ploss.backward()
                 torch.nn.utils.clip_grad_norm_(gap_privatizer.parameters(), 1000)
@@ -270,6 +291,7 @@ def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_o
 
             # print progress
             if i % 500 == 499:
+                ploss = privatizer_loss(x,y,u,uhat)
                 print(i+1,"aloss:",aloss.item(),"ploss:",ploss.item())
 
     print("done", i)
@@ -329,9 +351,10 @@ def test(test_loader, test_epochs, PRIVATIZER, gap_privatizer_optimizer, gap_pri
 
 if __name__ == '__main__':
     RESULT_FILENAME = "results.csv"
-    FILENAME = '../sample_augmented_data.csv'
+    FILENAME = r'C:\Users\mclark\Documents\GitHub\pytorch_privacy\clean\augmented_data.csv'
 
-    BATCH_SIZE = 16
+    # BATCH_SIZE = 16
+    BATCH_SIZE = 1024
     TRAIN_SPLIT = 0.7
 
     NUM_FEATURES = 24
@@ -367,8 +390,7 @@ if __name__ == '__main__':
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-
-    experiment_name = "baseline experiment"
+    experiment_name = "dp experiment"
     print(experiment_name)
     with open(RESULT_FILENAME, "a") as fd:
         fd.write(experiment_name)
@@ -384,16 +406,17 @@ if __name__ == '__main__':
     # SIGMA, RHO, CODEBOOK_SIZE = 0, 0, 0
     # for EPSILON in [1,2,3,4,5,6,7,8,9,10]:
 
-    PRIVATIZER = "noise_privatizer"
-    EPSILON, RHO, CODEBOOK_SIZE = 0, 0, 0
-    for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
+    # PRIVATIZER = "noise_privatizer"
+    # EPSILON, RHO, CODEBOOK_SIZE = 0, 0, 0
+    # for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
 
-    ### rho of 0 is private, 1 is useful
-    # PRIVATIZER = "gap_privatizer"
-    # EPSILON, SIGMA, CODEBOOK_SIZE = 0, 0, 0
-    # for RHO in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
+    ## rho of 0 is private, 1 is useful
+    PRIVATIZER = "gap_privatizer"
+    EPSILON, SIGMA, CODEBOOK_SIZE = 0, 0, 0
+    for RHO in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
 
         adversary, adversary_optimizer = make_adversary(NUM_FEATURES, NUM_UNITS, NUM_USERS)
+        print(next(adversary.parameters()).is_cuda)
         gap_privatizer, gap_privatizer_optimizer = make_gap_privatizer(NUM_FEATURES, NUM_UNITS)
         codebook = make_codebook(CODEBOOK_SIZE, BATCH_SIZE, NUM_FEATURES)
         privatizer_loss = make_privatizer_loss(MAP_PARAMS, NUM_GRIDS, BATCH_SIZE, UTILITY_WEIGHTS, RHO)
