@@ -112,16 +112,13 @@ def density_count(x, num_grids):
     return count, torch.unique(torch.Tensor(a_all).cuda()), torch.unique(torch.Tensor(c_all).cuda())
 
 def density_loss(x,y, batch_size):
-    a = (100*torch.clamp(x[:,:,12],0,0.01).sum() - 100*torch.clamp(y[:,:,12],0,0.01).sum())**2
-    b = (-100*torch.clamp(x[:,:,12],-0.01,0).sum() - -100*torch.clamp(y[:,:,12],-0.01,0).sum())**2
-    c = (100*torch.clamp(x[:,:,13],0,0.01).sum() - 100*torch.clamp(y[:,:,13],0,0.01).sum())**2
-    d = (-100*torch.clamp(x[:,:,13],-0.01,0).sum() - -100*torch.clamp(y[:,:,13],-0.01,0).sum())**2
+    a = abs(100*torch.clamp(x[:,:,12],0,0.01).sum() - 100*torch.clamp(y[:,:,12],0,0.01).sum())
+    b = abs(-100*torch.clamp(x[:,:,12],-0.01,0).sum() - -100*torch.clamp(y[:,:,12],-0.01,0).sum())
+    c = abs(100*torch.clamp(x[:,:,13],0,0.01).sum() - 100*torch.clamp(y[:,:,13],0,0.01).sum())
+    d = abs(-100*torch.clamp(x[:,:,13],-0.01,0).sum() - -100*torch.clamp(y[:,:,13],-0.01,0).sum())
+    # print(a.item(),b.item(),c.item(),d.item(),batch_size)
+    # print((a+b+c+d).item()/batch_size)
     return (a+b+c+d)/batch_size
-
-def init_weights(m):
-    if type(m) == torch.nn.Linear:
-        torch.nn.init.normal_(m.weight, mean=0, std=0.3)
-        # m.bias.data.fill_(2)
 
 def analytical_gaussian_sigma(eta, epsilon, delta):
     def phi(x):
@@ -198,6 +195,11 @@ def make_adversary(num_features, num_units, num_users):
 
 ## PRIVATIZER
 
+def init_weights(m):
+    if type(m) == torch.nn.Linear:
+        torch.nn.init.normal_(m.weight, mean=0, std=0.75) #std=0.3)
+        m.bias.data.fill_(2)
+
 def make_gap_privatizer(num_features, num_units):
     gap_privatizer = torch.nn.Sequential(
         torch.nn.Linear(num_features, num_units),
@@ -206,10 +208,11 @@ def make_gap_privatizer(num_features, num_units):
         torch.nn.ReLU(),
         torch.nn.Linear(num_units, num_features)
     )
+    gap_privatizer.benchmark = True
     gap_privatizer.cuda()
-    gap_privatizer.apply(init_weights)
+    # gap_privatizer.apply(init_weights)
     gap_privatizer.double()
-    gap_privatizer_optimizer = optim.Adam(gap_privatizer.parameters(),lr=0.002, betas=(0.9,0.999))
+    gap_privatizer_optimizer = optim.Adam(gap_privatizer.parameters(),lr=0.001, betas=(0.9,0.999))
     return gap_privatizer, gap_privatizer_optimizer
 
 def dp_privatizer(x,s, norm_clip):
@@ -240,9 +243,13 @@ def make_codebook(codebook_size, batch_size, num_features):
 
 def MI_privatizer(x, codebook, codebook_multiplier, utility_loss):
     for y in codebook.keys():
-        codebook[y] = sum(utility_loss(x,y)).item()
-    best = random.choices(list(codebook.keys()), list(map(lambda x: math.e**(-x*codebook_multiplier), codebook.values())))[0]
-    return best, codebook[best]
+        codebook[y] = sum(utility_loss(x,y)[:-1]).item()
+    options = list(codebook.keys())
+    options.append(x)
+    weights = list(map(lambda x: math.e**(-x*codebook_multiplier, codebook.values())))
+    weights.append(1)
+    best = random.choices(options, weights)[0]
+    return best
 
 ## TRAIN_SPLIT
 def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_optimizer, codebook, codebook_multiplier, utility_loss, privatizer_loss, sigma_dp, norm_clip, sigma_gaussian, adversary_optimizer, adversary, adversary_loss, batch_size, num_users):
@@ -259,7 +266,7 @@ def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_o
                 gap_privatizer_optimizer.zero_grad()
                 y = gap_privatizer(x)
             elif PRIVATIZER == "MI_privatizer":
-                y, loss_utility = MI_privatizer(x, codebook, codebook_multiplier, utility_loss)
+                y = MI_privatizer(x, codebook, codebook_multiplier, utility_loss)
             elif PRIVATIZER == "dp_privatizer":
                 y = dp_privatizer(x,sigma_dp, norm_clip)
             elif PRIVATIZER == "noise_privatizer":
@@ -273,10 +280,17 @@ def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_o
             uhat, lochat = estimate[:,:num_users], estimate[:,num_users:]
 
             # train adversary
-            aloss = adversary_loss(u,x,uhat,lochat)
-            aloss.backward(retain_graph=True)
-            torch.nn.utils.clip_grad_norm_(adversary.parameters(), 1000)
-            adversary_optimizer.step()
+            if PRIVATIZER == "gap_privatizer":
+                if i % 5 == 0:
+                    aloss = adversary_loss(u,x,uhat,lochat)
+                    aloss.backward(retain_graph=True)
+                    torch.nn.utils.clip_grad_norm_(adversary.parameters(), 1000)
+                    adversary_optimizer.step()
+            else:
+                aloss = adversary_loss(u,x,uhat,lochat)
+                aloss.backward(retain_graph=True)
+                torch.nn.utils.clip_grad_norm_(adversary.parameters(), 1000)
+                adversary_optimizer.step()
 
             # evaluate utility loss
             if PRIVATIZER == "gap_privatizer":
@@ -287,9 +301,12 @@ def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_o
                 gap_privatizer_optimizer.step()
 
             # print progress
-            if i % 500 == 499:
+            if i % 100 == 99:
+                aloss = adversary_loss(u,x,uhat,lochat)
                 loss_utility = utility_loss(x,y)
-                print(i+1,"aloss:",aloss.item(),"ploss:",sum(loss_utility).item())
+                print(i+1,"aloss:",aloss.item(),"uloss:",sum(loss_utility).item())
+                if PRIVATIZER == "gap_privatizer":
+                    print("ploss:",ploss.item())
 
     print("done", i)
 
@@ -312,7 +329,7 @@ def test(test_loader, test_epochs, PRIVATIZER, gap_privatizer_optimizer, gap_pri
                 gap_privatizer_optimizer.zero_grad()
                 y = gap_privatizer(x)
             elif PRIVATIZER == "MI_privatizer":
-                y, loss_utility = MI_privatizer(x, codebook, codebook_multiplier, utility_loss)
+                y = MI_privatizer(x, codebook, codebook_multiplier, utility_loss)
             elif PRIVATIZER == "dp_privatizer":
                 y = dp_privatizer(x,sigma_dp, norm_clip)
             elif PRIVATIZER == "noise_privatizer":
@@ -355,7 +372,7 @@ if __name__ == '__main__':
     MAP_PARAMS = 2
     NUM_GRIDS = 16
 
-    CODEBOOK_SIZE = 10 # todo
+    CODEBOOK_SIZE = 5 # todo
 
     userID = {
     'a841f74e620f74ec443b7a25d7569545':0,
@@ -386,7 +403,7 @@ if __name__ == '__main__':
 
     # PRIVATIZER = "MI_privatizer"
     # EPSILON, SIGMA, RHO = 0, 0, 0
-    # for CODEBOOK_MULTIPLIER in [0.1,0.9]: # todo
+    # for CODEBOOK_MULTIPLIER in [0.001,0.01,0.1,1.0]: # todo
 
     # PRIVATIZER = "dp_privatizer"
     # SIGMA, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
@@ -399,7 +416,8 @@ if __name__ == '__main__':
     ## rho of 0 is private, 1 is useful
     PRIVATIZER = "gap_privatizer"
     EPSILON, SIGMA, CODEBOOK_MULTIPLIER = 0, 0, 0
-    for RHO in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
+    for RHO in [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9]:
+    # for RHO in [0,1.0]:
 
         adversary, adversary_optimizer = make_adversary(NUM_FEATURES, NUM_UNITS, NUM_USERS)
         if PRIVATIZER == "gap_privatizer":
@@ -416,7 +434,7 @@ if __name__ == '__main__':
         train(NUM_EPOCHS, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_optimizer, codebook, CODEBOOK_MULTIPLIER, utility_loss, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary_optimizer, adversary, adversary_loss, BATCH_SIZE, NUM_USERS)
         acc, loc_error, map_error, distortion, dist_error, density_error = test(test_loader, TEST_EPOCHS, PRIVATIZER, gap_privatizer_optimizer, gap_privatizer, codebook, CODEBOOK_MULTIPLIER, utility_loss, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary, MAP_PARAMS, NUM_GRIDS, BATCH_SIZE, NUM_USERS)
 
-        RESULT_FILENAME = PRIVATIZER+".csv"
+        RESULT_FILENAME = PRIVATIZER + ".csv"
         with open(RESULT_FILENAME, "a") as fd:
             fd.write(PRIVATIZER)
             fd.write(",")
@@ -431,7 +449,7 @@ if __name__ == '__main__':
                 fd.write(str(EPSILON))
             elif PRIVATIZER == "MI_privatizer":
                 print(PRIVATIZER,"CODEBOOK MULTIPLIER=", CODEBOOK_MULTIPLIER)
-                fd.write(str(CODEBOOK_SIZE))
+                fd.write(str(CODEBOOK_MULTIPLIER))
             fd.write(",")
 
             print("Privacy Metrics:", acc, loc_error)
