@@ -134,7 +134,7 @@ def analytical_gaussian_sigma(eta, epsilon, delta):
 ## LOSS FUNCTIONS
 
 def make_privatizer_loss(map_params, num_grids, batch_size, utility_weights, rho):
-    def privatizer_loss(x,y,u,uhat):
+    def utility_loss(x,y):
         bx = signal_map_params(x,map_params)
         by = signal_map_params(y,map_params)
         l1 = (bx-by).pow(2).mean()
@@ -143,19 +143,16 @@ def make_privatizer_loss(map_params, num_grids, batch_size, utility_weights, rho
         cx,_,_ = density_count(x,num_grids)
         cy,_,_ = density_count(y, num_grids)
         l4 = (cx-cy).pow(2).mean()/batch_size
-        if u is not None:
-            l = torch.nn.CrossEntropyLoss()
-            l5 = l(uhat,u)
-            l6 = density_loss(x,y, batch_size)
-            w1,w2,w3,w4 = utility_weights
-            total_loss = rho*(w1*l1+w2*l2+w3*l3+w4*l6)-(1-rho)*l5
-            return total_loss
-        else: # if not given adversary estimate, just utility losses
-            l6 = density_loss(x,y, batch_size)
-            w1,w2,w3,w4 = utility_weights
-            total_loss = (w1*l1+w2*l2+w3*l3+w4*l6)
-            return total_loss
-    return privatizer_loss
+        l6 = density_loss(x,y, batch_size)
+        return l1, l2, l3, l4, l6
+    def privatizer_loss(x,y,u,uhat):
+        l1, l2, l3, l4, l6 = utility_loss(x,y)
+        l = torch.nn.CrossEntropyLoss()
+        l5 = l(uhat,u)
+        w1,w2,w3,w4 = utility_weights
+        total_loss = rho*(w1*l1+w2*l2+w3*l3+w4*l6)-(1-rho)*l5
+        return total_loss
+    return utility_loss, privatizer_loss
 
 def make_adversary_loss(privacy_weights):
     def adversary_loss(u,x,uhat,lochat):
@@ -219,15 +216,16 @@ def make_codebook(codebook_size, batch_size, num_features):
         codebook[y] = None
     return codebook
 
-def MI_privatizer(x, codebook, privatizer_loss):
+def MI_privatizer(x, codebook, codebook_multiplier, utility_loss):
     for y in codebook.keys():
-        codebook[y] = privatizer_loss(x,y,None,None)
-    best = random.choices(list(codebook.keys()), codebook.values())[0]
+        codebook[y] = sum(utility_loss(x,y)).item()
+    best = random.choices(list(codebook.keys()), list(map(lambda x: math.e**(-x*codebook_multiplier), codebook.values())))[0]
     return best, codebook[best]
 
 ## TRAIN_SPLIT
-def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_optimizer, codebook, privatizer_loss, sigma_dp, norm_clip, sigma_gaussian, adversary_optimizer, adversary, adversary_loss, batch_size, num_users):
+def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_optimizer, codebook, codebook_multiplier, utility_loss, privatizer_loss, sigma_dp, norm_clip, sigma_gaussian, adversary_optimizer, adversary, adversary_loss, batch_size, num_users):
     for epoch in range(num_epochs):
+        print("epoch",epoch)
         # iterate through the training dataset
         for i, batch in enumerate(train_loader):
             # unpack batch
@@ -240,7 +238,7 @@ def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_o
                 gap_privatizer_optimizer.zero_grad()
                 y = gap_privatizer(x)
             elif PRIVATIZER == "MI_privatizer":
-                y, ploss = MI_privatizer(x, codebook, privatizer_loss)
+                y, loss_utility = MI_privatizer(x, codebook, codebook_multiplier, utility_loss)
             elif PRIVATIZER == "dp_privatizer":
                 y = dp_privatizer(x,sigma_dp, norm_clip)
             elif PRIVATIZER == "noise_privatizer":
@@ -270,20 +268,22 @@ def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_o
             # print progress
             if i % 500 == 499:
                 # evaluate utility loss
-                ploss = privatizer_loss(x,y,u,uhat)
-                print(i+1,"aloss:",aloss.item(),"ploss:",ploss.item())
+                loss_utility = utility_loss(x,y)
+                print(i+1,"aloss:",aloss.item(),"ploss:",sum(loss_utility).item())
+
+            if i == 500:
+                break
 
     print("done", i)
 
-def test(test_loader, test_epochs, PRIVATIZER, gap_privatizer_optimizer, gap_privatizer, codebook, privatizer_loss, sigma_dp, norm_clip, sigma_gaussian, adversary, map_params, num_grids, batch_size, num_users):
+def test(test_loader, test_epochs, PRIVATIZER, gap_privatizer_optimizer, gap_privatizer, codebook, codebook_multiplier, utility_loss, privatizer_loss, sigma_dp, norm_clip, sigma_gaussian, adversary, map_params, num_grids, batch_size, num_users):
     correct = 0
-    total = 0
     loc_error = 0
     l1,l2,l3,l4,l5,l6 = 0,0,0,0,0,0
 
     # iterate through test data
-    for i,batch in enumerate(test_loader):
-        for epoch in range(test_epochs):
+    for epoch in range(test_epochs):
+        for i,batch in enumerate(test_loader):
 
             # unpack batch
             x, u = batch['x'], batch['u'].squeeze()
@@ -295,7 +295,7 @@ def test(test_loader, test_epochs, PRIVATIZER, gap_privatizer_optimizer, gap_pri
                 gap_privatizer_optimizer.zero_grad()
                 y = gap_privatizer(x)
             elif PRIVATIZER == "MI_privatizer":
-                y, ploss = MI_privatizer(x, codebook, privatizer_loss)
+                y, loss_utility = MI_privatizer(x, codebook, codebook_multiplier, utility_loss)
             elif PRIVATIZER == "dp_privatizer":
                 y = dp_privatizer(x,sigma_dp, norm_clip)
             elif PRIVATIZER == "noise_privatizer":
@@ -309,36 +309,27 @@ def test(test_loader, test_epochs, PRIVATIZER, gap_privatizer_optimizer, gap_pri
 
             # Privacy Metric
             _, upred = torch.max(uhat.data,1)
-            total+=u.size(0)
-            correct+=(upred==u).sum().item()
+            correct+=(upred==u).sum().item()/batch_size
             loc_error += (x[:,:,12:14].squeeze()-lochat).pow(2).mean().item()
 
             # Utility Metrics
-            l = torch.nn.CrossEntropyLoss()
-            l5 += l(uhat,u).item()
-            bx = signal_map_params(x,map_params)
-            by = signal_map_params(y,map_params)
-            l1 += (bx-by).pow(2).mean().item()
-            l2 += (y-x).pow(2).mean().item()
-            l3 += (y[:,:,12:14]-x[:,:,12:14]).pow(2).mean().item()
-            cx,_,_ = density_count(x,num_grids)
-            cy,_,_ = density_count(y,num_grids)
-            l4 += (cx-cy).pow(2).mean().item()/batch_size
-            l6 += density_loss(x,y, batch_size).item()
+            l1, l2, l3, l4, l6 = utility_loss(x,y)
 
-    return 100*correct/total, loc_error/(i+1)/test_epochs, l1/(i+1)/test_epochs, l2/(i+1)/test_epochs, l3/(i+1)/test_epochs, l4/(i+1)/test_epochs
+            if i == 500:
+                break
+
+    return 100*correct/(i+1)/test_epochs, loc_error/(i+1)/test_epochs, l1.item()/(i+1)/test_epochs, l2.item()/(i+1)/test_epochs, l3.item()/(i+1)/test_epochs, l4.item()/(i+1)/test_epochs
 
 if __name__ == '__main__':
-    RESULT_FILENAME = "results.csv"
-    FILENAME = '../sample_augmented_data.csv'
+    FILENAME = '../augmented_data.csv'
 
-    BATCH_SIZE = 16
+    BATCH_SIZE = 16 # todo
     TRAIN_SPLIT = 0.7
 
     NUM_FEATURES = 24
     NUM_UNITS = 32
     NUM_USERS = 9
-    NUM_EPOCHS = 5
+    NUM_EPOCHS = 1
     TEST_EPOCHS = 2
 
     DELTA = 0.00001
@@ -346,8 +337,10 @@ if __name__ == '__main__':
 
     UTILITY_WEIGHTS = (1,1,1,1)
     PRIVACY_WEIGHTS =(1,1)
-    MAP_PARAMS = 2 # todo
+    MAP_PARAMS = 2
     NUM_GRIDS = 16
+
+    CODEBOOK_SIZE = 10 # todo
 
     userID = {
     'a841f74e620f74ec443b7a25d7569545':0,
@@ -369,41 +362,50 @@ if __name__ == '__main__':
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
 
-    experiment_name = "baseline experiment"
-    print(experiment_name)
-    with open(RESULT_FILENAME, "a") as fd:
-        fd.write(experiment_name)
-        fd.write("\n")
+    # experiment_name = "baseline experiment"
+    # print(experiment_name)
+    # with open(RESULT_FILENAME, "a") as fd:
+    #     fd.write(experiment_name)
+    #     fd.write("\n")
 
     # uncomment one of these chunks to run a test
 
-    # PRIVATIZER = "MI_privatizer"
-    # EPSILON, SIGMA, RHO = 0, 0, 0
-    # for CODEBOOK_SIZE in [1,2,3,4,5,6,7,8,9,10]:
+    ## small multipliers private, large multipliers emphasize utility
+    PRIVATIZER = "MI_privatizer"
+    EPSILON, SIGMA, RHO = 0, 0, 0
+    for CODEBOOK_MULTIPLIER in [0.1,0.9]:
 
     # PRIVATIZER = "dp_privatizer"
-    # SIGMA, RHO, CODEBOOK_SIZE = 0, 0, 0
+    # SIGMA, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
     # for EPSILON in [1,2,3,4,5,6,7,8,9,10]:
 
-    PRIVATIZER = "noise_privatizer"
-    EPSILON, RHO, CODEBOOK_SIZE = 0, 0, 0
-    for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
+    # PRIVATIZER = "noise_privatizer"
+    # EPSILON, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
+    # for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
     # for SIGMA in [0]:
 
     ### rho of 0 is private, 1 is useful
     # PRIVATIZER = "gap_privatizer"
-    # EPSILON, SIGMA, CODEBOOK_SIZE = 0, 0, 0
+    # EPSILON, SIGMA, CODEBOOK_MULTIPLIER = 0, 0, 0
     # for RHO in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
 
         adversary, adversary_optimizer = make_adversary(NUM_FEATURES, NUM_UNITS, NUM_USERS)
-        gap_privatizer, gap_privatizer_optimizer = make_gap_privatizer(NUM_FEATURES, NUM_UNITS)
-        codebook = make_codebook(CODEBOOK_SIZE, BATCH_SIZE, NUM_FEATURES)
-        privatizer_loss = make_privatizer_loss(MAP_PARAMS, NUM_GRIDS, BATCH_SIZE, UTILITY_WEIGHTS, RHO)
+        if PRIVATIZER == "gap_privatizer":
+            gap_privatizer, gap_privatizer_optimizer = make_gap_privatizer(NUM_FEATURES, NUM_UNITS)
+        else:
+            gap_privatizer, gap_privatizer_optimizer = None, None
+        if PRIVATIZER == "MI_privatizer":
+            codebook = make_codebook(CODEBOOK_SIZE, BATCH_SIZE, NUM_FEATURES)
+        else:
+            codebook = None
+        utility_loss, privatizer_loss = make_privatizer_loss(MAP_PARAMS, NUM_GRIDS, BATCH_SIZE, UTILITY_WEIGHTS, RHO)
+
         adversary_loss = make_adversary_loss(PRIVACY_WEIGHTS)
         sigma_dp = analytical_gaussian_sigma(NORM_CLIP, EPSILON, DELTA)
-        train(NUM_EPOCHS, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_optimizer, codebook, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary_optimizer, adversary, adversary_loss, BATCH_SIZE, NUM_USERS)
-        acc, loc_error, map_error, distortion, dist_error, density_error = test(test_loader, TEST_EPOCHS, PRIVATIZER, gap_privatizer_optimizer, gap_privatizer, codebook, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary, MAP_PARAMS, NUM_GRIDS, BATCH_SIZE, NUM_USERS)
+        train(NUM_EPOCHS, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_optimizer, codebook, CODEBOOK_MULTIPLIER, utility_loss, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary_optimizer, adversary, adversary_loss, BATCH_SIZE, NUM_USERS)
+        acc, loc_error, map_error, distortion, dist_error, density_error = test(test_loader, TEST_EPOCHS, PRIVATIZER, gap_privatizer_optimizer, gap_privatizer, codebook, CODEBOOK_MULTIPLIER, utility_loss, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary, MAP_PARAMS, NUM_GRIDS, BATCH_SIZE, NUM_USERS)
 
+        RESULT_FILENAME = PRIVATIZER+".csv"
         with open(RESULT_FILENAME, "a") as fd:
             fd.write(PRIVATIZER)
             fd.write(",")
@@ -417,7 +419,7 @@ if __name__ == '__main__':
                 print(PRIVATIZER,"EPSILON=",EPSILON)
                 fd.write(str(EPSILON))
             elif PRIVATIZER == "MI_privatizer":
-                print(PRIVATIZER,"CODEBOOK SIZE=", CODEBOOK_SIZE)
+                print(PRIVATIZER,"CODEBOOK MULTIPLIER=", CODEBOOK_MULTIPLIER)
                 fd.write(str(CODEBOOK_SIZE))
             fd.write(",")
 
