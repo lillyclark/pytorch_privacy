@@ -406,68 +406,71 @@ if __name__ == '__main__':
 
     # uncomment one of these chunks to run a test
 
-    # PRIVATIZER = "MI_privatizer"
-    # EPSILON, SIGMA, RHO = 0, 0, 0
-    # for CODEBOOK_MULTIPLIER in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]: # todo
+    for run_index in range(4):
+        # PRIVATIZER = "MI_privatizer"
+        # EPSILON, SIGMA, RHO = 0, 0, 0
+        # for CODEBOOK_MULTIPLIER in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]: # todo
 
-    # PRIVATIZER = "dp_privatizer"
-    # SIGMA, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
-    # for EPSILON in [1,2,3,4,5,6,7,8,9,10]:
+        PRIVATIZER = "dp_privatizer"
+        SIGMA, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
+        for EPSILON in [1,2,3,4,5,6,7,8,9,10]:
 
-    # PRIVATIZER = "noise_privatizer"
-    # EPSILON, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
-    # for SIGMA in [0, 0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
+        # PRIVATIZER = "noise_privatizer"
+        # EPSILON, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
+        # for SIGMA in [0, 0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
 
-    ## rho of 0 is private, 1 is useful
-    PRIVATIZER = "gap_privatizer"
-    EPSILON, SIGMA, CODEBOOK_MULTIPLIER = 0, 0, 0
-    # for RHO in [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9]:
-    for RHO in [0,1.0]:
+        # ## rho of 0 is private, 1 is useful
+        # PRIVATIZER = "gap_privatizer"
+        # EPSILON, SIGMA, CODEBOOK_MULTIPLIER = 0, 0, 0
+        # for RHO in [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9]:
+        # # for RHO in [0,1.0]:
 
-        adversary, adversary_optimizer = make_adversary(NUM_FEATURES, NUM_UNITS, NUM_USERS)
-        if PRIVATIZER == "gap_privatizer":
-            gap_privatizer, gap_privatizer_optimizer = make_gap_privatizer(NUM_FEATURES, NUM_UNITS)
-        else:
-            gap_privatizer, gap_privatizer_optimizer = None, None
-        if PRIVATIZER == "MI_privatizer":
-            codebook = make_codebook(CODEBOOK_SIZE, BATCH_SIZE, NUM_FEATURES)
-        else:
-            codebook = None
-        utility_loss, privatizer_loss = make_privatizer_loss(MAP_PARAMS, NUM_GRIDS, BATCH_SIZE, UTILITY_WEIGHTS, RHO)
-        adversary_loss = make_adversary_loss(PRIVACY_WEIGHTS)
-        sigma_dp = analytical_gaussian_sigma(NORM_CLIP, EPSILON, DELTA)
-        train(NUM_EPOCHS, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_optimizer, codebook, CODEBOOK_MULTIPLIER, utility_loss, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary_optimizer, adversary, adversary_loss, BATCH_SIZE, NUM_USERS)
-        acc, loc_error, map_error, distortion, dist_error, density_error = test(test_loader, TEST_EPOCHS, PRIVATIZER, gap_privatizer_optimizer, gap_privatizer, codebook, CODEBOOK_MULTIPLIER, utility_loss, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary, MAP_PARAMS, NUM_GRIDS, BATCH_SIZE, NUM_USERS)
-
-        RESULT_FILENAME = PRIVATIZER + ".csv"
-        with open(RESULT_FILENAME, "a") as fd:
-            fd.write(PRIVATIZER)
-            fd.write(",")
+            adversary, adversary_optimizer = make_adversary(NUM_FEATURES, NUM_UNITS, NUM_USERS)
             if PRIVATIZER == "gap_privatizer":
-                print(PRIVATIZER,"RHO=",RHO)
-                fd.write(str(RHO))
-            elif PRIVATIZER == "noise_privatizer":
-                print(PRIVATIZER,"SIGMA=",SIGMA)
-                fd.write(str(SIGMA))
-            elif PRIVATIZER == "dp_privatizer":
-                print(PRIVATIZER,"EPSILON=",EPSILON)
-                fd.write(str(EPSILON))
-            elif PRIVATIZER == "MI_privatizer":
-                print(PRIVATIZER,"CODEBOOK MULTIPLIER=", CODEBOOK_MULTIPLIER)
-                fd.write(str(CODEBOOK_MULTIPLIER))
-            fd.write(",")
+                gap_privatizer, gap_privatizer_optimizer = make_gap_privatizer(NUM_FEATURES, NUM_UNITS)
+            else:
+                gap_privatizer, gap_privatizer_optimizer = None, None
+            if PRIVATIZER == "MI_privatizer":
+                codebook = make_codebook(CODEBOOK_SIZE, BATCH_SIZE, NUM_FEATURES)
+            else:
+                codebook = None
+            utility_loss, privatizer_loss = make_privatizer_loss(MAP_PARAMS, NUM_GRIDS, BATCH_SIZE, UTILITY_WEIGHTS, RHO)
+            adversary_loss = make_adversary_loss(PRIVACY_WEIGHTS)
+            sigma_dp = analytical_gaussian_sigma(NORM_CLIP, EPSILON, DELTA)
+            train(NUM_EPOCHS, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_optimizer, codebook, CODEBOOK_MULTIPLIER, utility_loss, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary_optimizer, adversary, adversary_loss, BATCH_SIZE, NUM_USERS)
+            acc, loc_error, map_error, distortion, dist_error, density_error = test(test_loader, TEST_EPOCHS, PRIVATIZER, gap_privatizer_optimizer, gap_privatizer, codebook, CODEBOOK_MULTIPLIER, utility_loss, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary, MAP_PARAMS, NUM_GRIDS, BATCH_SIZE, NUM_USERS)
 
-            print("Privacy Metrics:", acc, loc_error)
-            fd.write(str(acc))
-            fd.write(",")
-            fd.write(str(loc_error))
-            fd.write(",")
-            print("Utility Metrics:", map_error, distortion, dist_error, density_error)
-            fd.write(str(map_error))
-            fd.write(",")
-            fd.write(str(distortion))
-            fd.write(",")
-            fd.write(str(dist_error))
-            fd.write(",")
-            fd.write(str(density_error))
-            fd.write("\n")
+            RESULT_FILENAME = PRIVATIZER + ".csv"
+            with open(RESULT_FILENAME, "a") as fd:
+                fd.write(str(run_index))
+                fd.write('\n')
+                fd.write(PRIVATIZER)
+                fd.write(",")
+                if PRIVATIZER == "gap_privatizer":
+                    print(PRIVATIZER,"RHO=",RHO)
+                    fd.write(str(RHO))
+                elif PRIVATIZER == "noise_privatizer":
+                    print(PRIVATIZER,"SIGMA=",SIGMA)
+                    fd.write(str(SIGMA))
+                elif PRIVATIZER == "dp_privatizer":
+                    print(PRIVATIZER,"EPSILON=",EPSILON)
+                    fd.write(str(EPSILON))
+                elif PRIVATIZER == "MI_privatizer":
+                    print(PRIVATIZER,"CODEBOOK MULTIPLIER=", CODEBOOK_MULTIPLIER)
+                    fd.write(str(CODEBOOK_MULTIPLIER))
+                fd.write(",")
+
+                print("Privacy Metrics:", acc, loc_error)
+                fd.write(str(acc))
+                fd.write(",")
+                fd.write(str(loc_error))
+                fd.write(",")
+                print("Utility Metrics:", map_error, distortion, dist_error, density_error)
+                fd.write(str(map_error))
+                fd.write(",")
+                fd.write(str(distortion))
+                fd.write(",")
+                fd.write(str(dist_error))
+                fd.write(",")
+                fd.write(str(density_error))
+                fd.write("\n")

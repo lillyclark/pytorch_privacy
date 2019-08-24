@@ -39,7 +39,7 @@ class ChaniaDataset(Dataset):
         # data = self.augmented_data.iloc[idx].values
         # data = data.astype('float').reshape(-1,self.num_features)
         data = self.tensor_data[idx]
-        data = data.view(-1,self.num_features)
+        data = data.view(-1,450) # todo
         # user = self.userlabels.iloc[idx].values
         # user = user.astype('int').reshape(-1,1)
         user = self.tensor_labels[idx]
@@ -133,24 +133,44 @@ def make_adversary_loss(privacy_weights, n):
 
 ## ADVERSARY
 
-def make_adversary(num_features, num_units, num_users, num_points_per_entry):
-    adversary = torch.nn.Sequential(
-        torch.nn.Linear(num_features, 128),
-        torch.nn.ReLU(),
-        torch.nn.Linear(128, 64),
-        torch.nn.ReLU(),
-        torch.nn.Linear(64, 32),
-        torch.nn.ReLU(),
-        # torch.nn.Linear(num_units, num_users+2*num_points_per_entry)
-        torch.nn.Linear(32, num_users)
+# def make_adversary(num_features, num_units, num_users, num_points_per_entry):
+#     adversary = torch.nn.Sequential(
+#         torch.nn.Conv2d(150,1,1),
+#         torch.nn.Linear(3, 128), # todo
+#         torch.nn.ReLU(),
+#         torch.nn.Linear(128, 64),
+#         torch.nn.ReLU(),
+#         torch.nn.Linear(64, 32),
+#         torch.nn.ReLU(),
+#         # torch.nn.Linear(num_units, num_users+2*num_points_per_entry)
+#         torch.nn.Linear(32, num_users)
 
-    )
-    adversary.apply(init_weights)
+#     )
+#     adversary.apply(init_weights)
+#     adversary.benchmark = True
+#     adversary.cuda(CUDA1)
+#     adversary.double()
+#     adversary_optimizer = optim.Adam(adversary.parameters(),lr=0.001, betas=(0.9,0.999))
+#     return adversary, adversary_optimizer
+
+def make_adversary(num_features, num_units, num_users, num_points_per_entry):
+    class Adversary(torch.nn.Module):
+        def __init__(self):
+            super(Adversary, self).__init__()
+            self.lstm = torch.nn.LSTM(3, num_units)
+            self.hidden = (torch.zeros(1,1,num_units).cuda(CUDA1), torch.zeros(1,1,num_units).cuda(CUDA1))
+            self.classifier = torch.nn.Linear(num_units,num_users)
+
+        def forward(self, y):
+            # y should be size (450, 1, 1)
+            lstm_out, self.hidden = self.lstm(y.view(num_points_per_entry,1,3), self.hidden)
+            uhat = self.classifier(lstm_out[-1])
+            return uhat
+    adversary = Adversary()
     adversary.benchmark = True
     adversary.cuda(CUDA1)
     adversary.double()
-    adversary_optimizer = optim.Adam(adversary.parameters(),lr=0.001, betas=(0.9,0.999))
-    return adversary, adversary_optimizer
+    return adversary, optim.Adam(adversary.parameters(),lr=0.001, betas=(0.9,0.999))
 
 ## PRIVATIZER
 
@@ -211,7 +231,7 @@ def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_o
         # iterate through the training dataset
         for i, batch in enumerate(train_loader):
             # unpack batch
-            x, u = batch['x'], batch['u'].squeeze()
+            x, u = batch['x'], batch['u'].view(1)
             if x.shape[0] != batch_size:
                 break
             # generate privatized batch
@@ -230,9 +250,9 @@ def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_o
 
             # reset adversary gradients
             adversary_optimizer.zero_grad()
-            estimate = adversary(y).squeeze()
+            estimate = adversary(y)
             # uhat, lochat = estimate[:,:num_users], estimate[:,num_users:]
-            uhat = estimate[:,:num_users]
+            uhat = estimate
 
             # train adversary
             if PRIVATIZER == "gap_privatizer":
@@ -258,7 +278,7 @@ def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_o
                 gap_privatizer_optimizer.step()
 
             # print progress
-            if i % 12 == 0 and i > 0:
+            if i % 10 == 9:
                 # evaluate utility loss
                 # aloss = adversary_loss(u,x,uhat,lochat)
                 aloss = adversary_loss(uhat,u)
@@ -296,9 +316,9 @@ def test(test_loader, test_epochs, PRIVATIZER, gap_privatizer_optimizer, gap_pri
                 raise ValueError
 
             # estimate userID and location
-            estimate = adversary(y).squeeze()
+            estimate = adversary(y)
             # uhat, lochat = estimate[:,:num_users], estimate[:,num_users:]
-            uhat = estimate[:,:num_users]
+            uhat = estimate
 
             # Privacy Metric
             _, upred = torch.max(uhat.data,1)
@@ -320,12 +340,12 @@ def test(test_loader, test_epochs, PRIVATIZER, gap_privatizer_optimizer, gap_pri
 if __name__ == '__main__':
     FILENAME = r'C:\Users\mclark\Documents\GitHub\pytorch_privacy\clean\daytabase_no_shuffle.csv'
 
-    BATCH_SIZE = 54 # todo
+    BATCH_SIZE = 1 # todo
     TRAIN_SPLIT = 0.7
 
     NUM_POINTS_PER_ENTRY = 150
     NUM_FEATURES = 3*NUM_POINTS_PER_ENTRY
-    NUM_UNITS = 512
+    NUM_UNITS = 32
     NUM_USERS = 9
     NUM_EPOCHS = 1 # todo
     TEST_EPOCHS = 3
