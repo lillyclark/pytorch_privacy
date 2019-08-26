@@ -375,7 +375,7 @@ if __name__ == '__main__':
             codebook = None
         utility_loss, privatizer_loss = make_privatizer_loss(MAP_PARAMS, NUM_GRIDS, BATCH_SIZE, UTILITY_WEIGHTS, RHO)
 
-        adversary_loss = make_adversary_loss(PRIVACY_WEIGHTS)
+        adversary_loss = make_adversary_loss(PRIVACY_WEIGHTS, NUM_POINTS_PER_ENTRY)
         sigma_dp = analytical_gaussian_sigma(NORM_CLIP, EPSILON, DELTA)
         train(NUM_EPOCHS, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_optimizer, codebook, CODEBOOK_MULTIPLIER, utility_loss, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary_optimizer, adversary, adversary_loss, BATCH_SIZE, NUM_USERS)
         acc, loc_error, map_error, distortion, dist_error = test(test_loader, TEST_EPOCHS, PRIVATIZER, gap_privatizer_optimizer, gap_privatizer, codebook, CODEBOOK_MULTIPLIER, utility_loss, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary, MAP_PARAMS, NUM_GRIDS, BATCH_SIZE, NUM_USERS)

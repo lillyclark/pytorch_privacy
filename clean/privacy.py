@@ -225,6 +225,8 @@ def MI_privatizer(x, codebook, codebook_multiplier, utility_loss):
     weights = list(map(lambda x: math.e**(-x*codebook_multiplier), codebook.values()))
     weights.append(1)
     best = random.choices(options, weights)[0]
+    # if (best-y).sum().item() != 0:
+    #     print("chose a different batch")
     return best
 
 ## TRAIN_SPLIT
@@ -327,7 +329,12 @@ def test(test_loader, test_epochs, PRIVATIZER, gap_privatizer_optimizer, gap_pri
             loc_error += (x[:,:,12:14].squeeze()-lochat).pow(2).mean().item()
 
             # Utility Metrics
-            l1, l2, l3, l4, l6 = utility_loss(x,y)
+            this_l1, this_l2, this_l3, this_l4, this_l6 = utility_loss(x,y)
+            l1 += this_l1
+            l2 += this_l2
+            l3 += this_l3
+            l4 += this_l4
+            l6 += this_l6
 
     return 100*correct/(i+1)/test_epochs, loc_error/(i+1)/test_epochs, l1.item()/(i+1)/test_epochs, l2.item()/(i+1)/test_epochs, l3.item()/(i+1)/test_epochs, l4.item()/(i+1)/test_epochs
 
@@ -342,7 +349,7 @@ if __name__ == '__main__':
     NUM_UNITS = 32
     NUM_USERS = 9
     NUM_EPOCHS = 5
-    TEST_EPOCHS = 2
+    TEST_EPOCHS = 3
 
     DELTA = 0.00001
     NORM_CLIP=7.154
@@ -385,7 +392,8 @@ if __name__ == '__main__':
     ## small multipliers private, large multipliers emphasize utility
     PRIVATIZER = "MI_privatizer"
     EPSILON, SIGMA, RHO = 0, 0, 0
-    for CODEBOOK_MULTIPLIER in [0.001,0.009,0.01,0.09,0.1,0.9,1.0]:
+    # for CODEBOOK_MULTIPLIER in [0.001,0.009,0.01,0.09,0.1,0.9,1.0]:
+    for CODEBOOK_MULTIPLIER in [0.1,0.9]:
     # for CODEBOOK_MULTIPLIER in [0.001, 1.0]:
 
     # PRIVATIZER = "dp_privatizer"
