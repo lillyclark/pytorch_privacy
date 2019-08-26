@@ -153,17 +153,17 @@ def make_adversary_loss(privacy_weights, n):
 #     adversary_optimizer = optim.Adam(adversary.parameters(),lr=0.001, betas=(0.9,0.999))
 #     return adversary, adversary_optimizer
 
-def make_adversary(num_features, num_units, num_users, num_points_per_entry):
+def make_adversary(num_features, num_units, num_users, num_points_per_entry, batch_size):
     class Adversary(torch.nn.Module):
         def __init__(self):
             super(Adversary, self).__init__()
             self.lstm = torch.nn.LSTM(3, num_units)
-            self.hidden = (torch.zeros(1,1,num_units).cuda(CUDA1), torch.zeros(1,1,num_units).cuda(CUDA1))
+            self.hidden = (torch.zeros(1,batch_size,num_units).cuda(CUDA1), torch.zeros(1,batch_size,num_units).cuda(CUDA1))
             self.classifier = torch.nn.Linear(num_units,num_users)
 
         def forward(self, y):
             # y should be size (450, 1, 1)
-            lstm_out, self.hidden = self.lstm(y.view(num_points_per_entry,1,3), self.hidden)
+            lstm_out, self.hidden = self.lstm(y.view(num_points_per_entry,-1,3), self.hidden)
             uhat = self.classifier(lstm_out[-1])
             return uhat
     adversary = Adversary()
@@ -231,7 +231,7 @@ def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_o
         # iterate through the training dataset
         for i, batch in enumerate(train_loader):
             # unpack batch
-            x, u = batch['x'], batch['u'].view(1)
+            x, u = batch['x'], batch['u'].view(batch_size)
             if x.shape[0] != batch_size:
                 break
             # generate privatized batch
@@ -298,7 +298,7 @@ def test(test_loader, test_epochs, PRIVATIZER, gap_privatizer_optimizer, gap_pri
         for i,batch in enumerate(test_loader):
 
             # unpack batch
-            x, u = batch['x'], batch['u'].squeeze()
+            x, u = batch['x'], batch['u'].view(-1,1)
             if x.shape[0] != batch_size:
                 break
             # generate privatized batch
@@ -340,7 +340,7 @@ def test(test_loader, test_epochs, PRIVATIZER, gap_privatizer_optimizer, gap_pri
 if __name__ == '__main__':
     FILENAME = r'C:\Users\mclark\Documents\GitHub\pytorch_privacy\clean\daytabase_no_shuffle.csv'
 
-    BATCH_SIZE = 1 # todo
+    BATCH_SIZE = 100 # todo
     TRAIN_SPLIT = 0.7
 
     NUM_POINTS_PER_ENTRY = 150
@@ -407,7 +407,7 @@ if __name__ == '__main__':
     # EPSILON, SIGMA, CODEBOOK_MULTIPLIER = 0, 0, 0
     # for RHO in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
 
-        adversary, adversary_optimizer = make_adversary(NUM_FEATURES, NUM_UNITS, NUM_USERS, NUM_POINTS_PER_ENTRY)
+        adversary, adversary_optimizer = make_adversary(NUM_FEATURES, NUM_UNITS, NUM_USERS, NUM_POINTS_PER_ENTRY, BATCH_SIZE)
         if PRIVATIZER == "gap_privatizer":
             gap_privatizer, gap_privatizer_optimizer = make_gap_privatizer(NUM_FEATURES, NUM_UNITS)
         else:
