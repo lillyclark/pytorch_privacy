@@ -390,11 +390,11 @@ if __name__ == '__main__':
     # uncomment one of these chunks to run a test
 
     ## small multipliers private, large multipliers emphasize utility
-    PRIVATIZER = "MI_privatizer"
-    EPSILON, SIGMA, RHO = 0, 0, 0
-    # for CODEBOOK_MULTIPLIER in [0.001,0.009,0.01,0.09,0.1,0.9,1.0]:
-    for CODEBOOK_MULTIPLIER in [0.1,0.9]:
-    # for CODEBOOK_MULTIPLIER in [0.001, 1.0]:
+    # PRIVATIZER = "MI_privatizer"
+    # EPSILON, SIGMA, RHO = 0, 0, 0
+    # # for CODEBOOK_MULTIPLIER in [0.001,0.009,0.01,0.09,0.1,0.9,1.0]:
+    # for CODEBOOK_MULTIPLIER in [0.1,0.9]:
+    # # for CODEBOOK_MULTIPLIER in [0.001, 1.0]:
 
     # PRIVATIZER = "dp_privatizer"
     # SIGMA, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
@@ -405,10 +405,11 @@ if __name__ == '__main__':
     # for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
     # for SIGMA in [0]:
 
-    ### rho of 0 is private, 1 is useful
-    # PRIVATIZER = "gap_privatizer"
-    # EPSILON, SIGMA, CODEBOOK_MULTIPLIER = 0, 0, 0
+    ## rho of 0 is private, 1 is useful
+    PRIVATIZER = "gap_privatizer"
+    EPSILON, SIGMA, CODEBOOK_MULTIPLIER = 0, 0, 0
     # for RHO in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
+    for RHO in [0.001,0.001,0.001,0.001]:
 
         adversary, adversary_optimizer = make_adversary(NUM_FEATURES, NUM_UNITS, NUM_USERS)
         if PRIVATIZER == "gap_privatizer":
