@@ -74,21 +74,22 @@ def density_count(x, num_grids):
             c_all.append(c)
             d = x2min+(size2/num_grids*(j+1))
             c_all.append(d)
-            if i == num_grids-1 and j != num_grids-1:
-                count[i][j] += x[(x[:,:,13] >= a ) &
-                                 (x[:,:,13] <= b) &
-                                 (x[:,:,12] >= c) &
-                                 (x[:,:,12] < d)].size(0)
-            elif j == num_grids-1 and i != num_grids-1:
-                count[i][j] += x[(x[:,:,13] >= a ) &
-                                 (x[:,:,13] < b) &
-                                 (x[:,:,12] >= c) &
-                                 (x[:,:,12] <= d)].size(0)
-            elif j == num_grids-1 and i == num_grids-1:
-                count[i][j] += x[(x[:,:,13] >= a ) &
-                                 (x[:,:,13] <= b) &
-                                 (x[:,:,12] >= c) &
-                                 (x[:,:,12] <= d)].size(0)
+            if i == 0 and j == 0:
+                count[i][j] += x[(x[:,:,13] < b) & (x[:,:,12] >= c)].size(0)
+            elif i == 0 and j != 0 and j != num_grids-1:
+                count[i][j] += x[(x[:,:,13] >= a) & (x[:,:,13] < b) & (x[:,:,12] >= c)].size(0)
+            elif i == 0 and j == num_grids-1:
+                count[i][j] += x[(x[:,:,13] >= a) & (x[:,:,12] >= c)].size(0)
+            if i == num_grids-1 and j == 0:
+                count[i][j] += x[(x[:,:,13] < b) & (x[:,:,12] < d)].size(0)
+            elif i == num_grids-1 and j != 0 and j != num_grids-1:
+                count[i][j] += x[(x[:,:,13] >= a) & (x[:,:,13] < b) & (x[:,:,12] < d)].size(0)
+            elif i == num_grids-1 and j == num_grids-1:
+                count[i][j] += x[(x[:,:,13] >= a) & (x[:,:,12] < d)].size(0)
+            elif j == 0 and i != 0 and i != num_grids-1:
+                count[i][j] += x[(x[:,:,13] < b) & (x[:,:,12] >= c) & (x[:,:,12] < d)].size(0)
+            elif j == num_grids-1 and i != 0 and i != num_grids-1:
+                count[i][j] += x[(x[:,:,13] >= a) & (x[:,:,12] >= c) & (x[:,:,12] < d)].size(0)
             else:
                 count[i][j] += x[(x[:,:,13] >= a ) &
                                  (x[:,:,13] < b) &
@@ -399,17 +400,18 @@ if __name__ == '__main__':
     # PRIVATIZER = "dp_privatizer"
     # SIGMA, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
     # for EPSILON in [1,2,3,4,5,6,7,8,9,10]:
+    # for EPSILON in [1]:
 
-    # PRIVATIZER = "noise_privatizer"
-    # EPSILON, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
-    # for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
+    PRIVATIZER = "noise_privatizer"
+    EPSILON, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
+    for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
     # for SIGMA in [0]:
 
-    ## rho of 0 is private, 1 is useful
-    PRIVATIZER = "gap_privatizer"
-    EPSILON, SIGMA, CODEBOOK_MULTIPLIER = 0, 0, 0
-    # for RHO in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
-    for RHO in [0.001,0.001,0.001,0.001]:
+    # ## rho of 0 is private, 1 is useful
+    # PRIVATIZER = "gap_privatizer"
+    # EPSILON, SIGMA, CODEBOOK_MULTIPLIER = 0, 0, 0
+    # # for RHO in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
+    # for RHO in [0.001,0.001,0.001,0.001]:
 
         adversary, adversary_optimizer = make_adversary(NUM_FEATURES, NUM_UNITS, NUM_USERS)
         if PRIVATIZER == "gap_privatizer":
@@ -424,7 +426,7 @@ if __name__ == '__main__':
 
         adversary_loss = make_adversary_loss(PRIVACY_WEIGHTS)
         sigma_dp = analytical_gaussian_sigma(NORM_CLIP, EPSILON, DELTA)
-        train(NUM_EPOCHS, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_optimizer, codebook, CODEBOOK_MULTIPLIER, utility_loss, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary_optimizer, adversary, adversary_loss, BATCH_SIZE, NUM_USERS)
+        # train(NUM_EPOCHS, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_optimizer, codebook, CODEBOOK_MULTIPLIER, utility_loss, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary_optimizer, adversary, adversary_loss, BATCH_SIZE, NUM_USERS)
         acc, loc_error, map_error, distortion, dist_error, density_error = test(test_loader, TEST_EPOCHS, PRIVATIZER, gap_privatizer_optimizer, gap_privatizer, codebook, CODEBOOK_MULTIPLIER, utility_loss, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary, MAP_PARAMS, NUM_GRIDS, BATCH_SIZE, NUM_USERS)
 
         RESULT_FILENAME = PRIVATIZER+".csv"
