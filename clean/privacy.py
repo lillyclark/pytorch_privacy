@@ -74,27 +74,14 @@ def density_count(x, num_grids):
             c_all.append(c)
             d = x2min+(size2/num_grids*(j+1))
             c_all.append(d)
-            if i == 0 and j == 0:
-                count[i][j] += x[(x[:,:,13] < b) & (x[:,:,12] >= c)].size(0)
-            elif i == 0 and j != 0 and j != num_grids-1:
-                count[i][j] += x[(x[:,:,13] >= a) & (x[:,:,13] < b) & (x[:,:,12] >= c)].size(0)
+            if i == 0 and j != num_grids-1:
+                count[i][j] += x[(x[:,:,13] >= a ) & (x[:,:,13] < b) & (x[:,:,12] >= c) & (x[:,:,12] <= d)].size(0)
             elif i == 0 and j == num_grids-1:
-                count[i][j] += x[(x[:,:,13] >= a) & (x[:,:,12] >= c)].size(0)
-            if i == num_grids-1 and j == 0:
-                count[i][j] += x[(x[:,:,13] < b) & (x[:,:,12] < d)].size(0)
-            elif i == num_grids-1 and j != 0 and j != num_grids-1:
-                count[i][j] += x[(x[:,:,13] >= a) & (x[:,:,13] < b) & (x[:,:,12] < d)].size(0)
-            elif i == num_grids-1 and j == num_grids-1:
-                count[i][j] += x[(x[:,:,13] >= a) & (x[:,:,12] < d)].size(0)
-            elif j == 0 and i != 0 and i != num_grids-1:
-                count[i][j] += x[(x[:,:,13] < b) & (x[:,:,12] >= c) & (x[:,:,12] < d)].size(0)
-            elif j == num_grids-1 and i != 0 and i != num_grids-1:
-                count[i][j] += x[(x[:,:,13] >= a) & (x[:,:,12] >= c) & (x[:,:,12] < d)].size(0)
+                count[i][j] += x[(x[:,:,13] >= a) & (x[:,:,13] <= b) & (x[:,:,12] >= c) & (x[:,:,12] <= d)].size(0)
+            elif i != 0 and j == num_grids-1:
+                count[i][j] += x[(x[:,:,13] >= a) & (x[:,:,13] <= b) & (x[:,:,12] >= c) & (x[:,:,12] < d)].size(0)
             else:
-                count[i][j] += x[(x[:,:,13] >= a ) &
-                                 (x[:,:,13] < b) &
-                                 (x[:,:,12] >= c) &
-                                 (x[:,:,12] < d)].size(0)
+                count[i][j] += x[(x[:,:,13] >= a ) & (x[:,:,13] < b) & (x[:,:,12] >= c) & (x[:,:,12] < d)].size(0)
     return count, torch.unique(torch.Tensor(a_all)), torch.unique(torch.Tensor(c_all))
 
 def density_loss(x,y, batch_size):
@@ -143,7 +130,7 @@ def make_privatizer_loss(map_params, num_grids, batch_size, utility_weights, rho
         l3 = (y[:,:,12:14]-x[:,:,12:14]).pow(2).mean()
         cx,_,_ = density_count(x,num_grids)
         cy,_,_ = density_count(y, num_grids)
-        l4 = (cx-cy).pow(2).mean()/batch_size
+        l4 = (sum(abs(cx-cy))+(sum(cx)-sum(cy)))/(2*batch_size)
         l6 = density_loss(x,y, batch_size)
         return l1, l2, l3, l4, l6
     def privatizer_loss(x,y,u,uhat):
@@ -397,14 +384,14 @@ if __name__ == '__main__':
     # for CODEBOOK_MULTIPLIER in [0.1,0.9]:
     # # for CODEBOOK_MULTIPLIER in [0.001, 1.0]:
 
-    # PRIVATIZER = "dp_privatizer"
-    # SIGMA, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
-    # for EPSILON in [1,2,3,4,5,6,7,8,9,10]:
+    PRIVATIZER = "dp_privatizer"
+    SIGMA, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
+    for EPSILON in [1,2,3,4,5,6,7,8,9,10]:
     # for EPSILON in [1]:
 
-    PRIVATIZER = "noise_privatizer"
-    EPSILON, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
-    for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
+    # PRIVATIZER = "noise_privatizer"
+    # EPSILON, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
+    # for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
     # for SIGMA in [0]:
 
     # ## rho of 0 is private, 1 is useful
