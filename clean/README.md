@@ -2,7 +2,7 @@ This folder contains the code for Privacy-Utility Trade Studies in Mobile Networ
 
 The script `privacy.py` contains the setup of all four privatizers: Noise Adding, Local Differential Privacy, Generative Adversarial Privacy, and Information Theoretic. In the `__main__` function, the developer can select which privatizer to test, and running this script will vary the parameter specific to that privatizer and record data to a csv file according to the privatizer name.
 
-The data for these experiments is contained in the zipped file `augmented\_data.csv.tar.gz`. It contains GSM measurements from 9 users in the city of Chania over approximately 8 months. This dataset comes from the thesis work of  Emmanouil Alimpertis. Here is a short description for each of the dataset variables:
+The data for these experiments is contained in the zipped file `augmented_data.csv.tar.gz`. It contains GSM measurements from 9 users in the city of Chania over approximately 8 months. This dataset comes from the thesis work of  Emmanouil Alimpertis. Here is a short description for each of the dataset variables:
 
 1. timestamp: It contains the exact date and the time moment of the measurement.
 2. dt1: rrsi1 was recorded at the time moment timestamp+dt1 . Each measurement contains a burst of 5 consecutive RSS measurements from the iPhone's baseband. System records 5 consecutive RSSIs for many reasons. For example, we can see if the RSS is constant during a few seconds; this will reveal many properties of the wireless channel at the corresponding time moment.
@@ -29,4 +29,4 @@ The data for these experiments is contained in the zipped file `augmented\_data.
 22. freq\_dlink: downlink frequency carrier (calculated by ARFCN).
 23. freq\_uplin: uplink frequency carrier (calculated by ARFCN).
 
-The script `privacy_trace.py` is analagous except for that it reads from the pre-processed `daytabase\_no\_shuffle.csv` and privatizers at the trace-level (a day's worth of points) rather than per point. This effort is ongoing.
+The script `privacy_trace.py` is analagous except for that it reads from the pre-processed `daytabase_no_shuffle.csv` and privatizers at the trace-level (a day's worth of points) rather than per point. This effort is ongoing.
