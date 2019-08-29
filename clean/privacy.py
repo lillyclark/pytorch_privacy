@@ -327,9 +327,6 @@ def test(test_loader, test_epochs, PRIVATIZER, gap_privatizer_optimizer, gap_pri
             l4 += this_l4
             l6 += this_l6
 
-            if i == 0:
-                break
-
     return 100*correct/(i+1)/test_epochs, loc_error/(i+1)/test_epochs, l1.item()/(i+1)/test_epochs, l2.item()/(i+1)/test_epochs, l3.item()/(i+1)/test_epochs, l4.item()/(i+1)/test_epochs
 
 if __name__ == '__main__':
@@ -383,23 +380,23 @@ if __name__ == '__main__':
 
     # uncomment one of these chunks to run a test
 
-    ##small multipliers private, large multipliers emphasize utility
-    PRIVATIZER = "MI_privatizer"
-    EPSILON, SIGMA, RHO = 0, 0, 0
-    for CODEBOOK_MULTIPLIER in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
-
-    PRIVATIZER = "dp_privatizer"
-    SIGMA, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
-    for EPSILON in [0.1,1,2,3,4,5,6,7,8,9,10]:
+    # ##small multipliers private, large multipliers emphasize utility
+    # PRIVATIZER = "MI_privatizer"
+    # EPSILON, SIGMA, RHO = 0, 0, 0
+    # for CODEBOOK_MULTIPLIER in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
+    #
+    # PRIVATIZER = "dp_privatizer"
+    # SIGMA, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
+    # for EPSILON in [0.1,1,2,3,4,5,6,7,8,9,10]:
 
     PRIVATIZER = "noise_privatizer"
     EPSILON, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
     for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
 
-    ## rho of 0 is private, 1 is useful
-    PRIVATIZER = "gap_privatizer"
-    EPSILON, SIGMA, CODEBOOK_MULTIPLIER = 0, 0, 0
-    for RHO in [0,0.001,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
+    # ## rho of 0 is private, 1 is useful
+    # PRIVATIZER = "gap_privatizer"
+    # EPSILON, SIGMA, CODEBOOK_MULTIPLIER = 0, 0, 0
+    # for RHO in [0,0.001,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
 
         adversary, adversary_optimizer = make_adversary(NUM_FEATURES, NUM_UNITS, NUM_USERS)
         if PRIVATIZER == "gap_privatizer":
