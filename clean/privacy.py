@@ -125,12 +125,15 @@ def make_privatizer_loss(map_params, num_grids, batch_size, utility_weights, rho
     def utility_loss(x,y):
         bx = signal_map_params(x,map_params)
         by = signal_map_params(y,map_params)
-        l1 = (bx-by).pow(2).mean()
-        l2 = (x-y).pow(2).mean()
-        l3 = (y[:,:,12:14]-x[:,:,12:14]).pow(2).mean()
+        l1 = sum(abs(bx-by))
+        # l2 = (x-y).pow(2).mean() # mean squared error
+        l2 = (x.view(batch_size,-1)-y.view(batch_size,-1)).pow(2).sum(1).pow(0.5).mean() # average distance
+        # l3 = (y[:,:,12:14]-x[:,:,12:14]).pow(2).mean() # mean squared error
+        l3 = (y[:,:,12:14]-x[:,:,12:14]).pow(2).sum(1).pow(0.5).mean() # average distance
+        print(l2.item(),l3.item())
         cx,_,_ = density_count(x,num_grids)
-        cy,_,_ = density_count(y, num_grids)
-        l4 = (sum(abs(cx-cy))+(sum(cx)-sum(cy)))/(2*batch_size)
+        cy,_,_ = density_count(y,num_grids)
+        l4 = ((abs(cx-cy)).sum()+(cx.sum()-cy.sum()))/(2*cx.sum())
         l6 = density_loss(x,y, batch_size)
         return l1, l2, l3, l4, l6
     def privatizer_loss(x,y,u,uhat):
@@ -324,6 +327,9 @@ def test(test_loader, test_epochs, PRIVATIZER, gap_privatizer_optimizer, gap_pri
             l4 += this_l4
             l6 += this_l6
 
+            if i == 0:
+                break
+
     return 100*correct/(i+1)/test_epochs, loc_error/(i+1)/test_epochs, l1.item()/(i+1)/test_epochs, l2.item()/(i+1)/test_epochs, l3.item()/(i+1)/test_epochs, l4.item()/(i+1)/test_epochs
 
 if __name__ == '__main__':
@@ -377,28 +383,23 @@ if __name__ == '__main__':
 
     # uncomment one of these chunks to run a test
 
-    ## small multipliers private, large multipliers emphasize utility
-    # PRIVATIZER = "MI_privatizer"
-    # EPSILON, SIGMA, RHO = 0, 0, 0
-    # # for CODEBOOK_MULTIPLIER in [0.001,0.009,0.01,0.09,0.1,0.9,1.0]:
-    # for CODEBOOK_MULTIPLIER in [0.1,0.9]:
-    # # for CODEBOOK_MULTIPLIER in [0.001, 1.0]:
+    ##small multipliers private, large multipliers emphasize utility
+    PRIVATIZER = "MI_privatizer"
+    EPSILON, SIGMA, RHO = 0, 0, 0
+    for CODEBOOK_MULTIPLIER in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
 
     PRIVATIZER = "dp_privatizer"
     SIGMA, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
-    for EPSILON in [1,2,3,4,5,6,7,8,9,10]:
-    # for EPSILON in [1]:
+    for EPSILON in [0.1,1,2,3,4,5,6,7,8,9,10]:
 
-    # PRIVATIZER = "noise_privatizer"
-    # EPSILON, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
-    # for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
-    # for SIGMA in [0]:
+    PRIVATIZER = "noise_privatizer"
+    EPSILON, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
+    for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
 
-    # ## rho of 0 is private, 1 is useful
-    # PRIVATIZER = "gap_privatizer"
-    # EPSILON, SIGMA, CODEBOOK_MULTIPLIER = 0, 0, 0
-    # # for RHO in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
-    # for RHO in [0.001,0.001,0.001,0.001]:
+    ## rho of 0 is private, 1 is useful
+    PRIVATIZER = "gap_privatizer"
+    EPSILON, SIGMA, CODEBOOK_MULTIPLIER = 0, 0, 0
+    for RHO in [0,0.001,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
 
         adversary, adversary_optimizer = make_adversary(NUM_FEATURES, NUM_UNITS, NUM_USERS)
         if PRIVATIZER == "gap_privatizer":
@@ -413,7 +414,7 @@ if __name__ == '__main__':
 
         adversary_loss = make_adversary_loss(PRIVACY_WEIGHTS)
         sigma_dp = analytical_gaussian_sigma(NORM_CLIP, EPSILON, DELTA)
-        # train(NUM_EPOCHS, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_optimizer, codebook, CODEBOOK_MULTIPLIER, utility_loss, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary_optimizer, adversary, adversary_loss, BATCH_SIZE, NUM_USERS)
+        train(NUM_EPOCHS, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_optimizer, codebook, CODEBOOK_MULTIPLIER, utility_loss, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary_optimizer, adversary, adversary_loss, BATCH_SIZE, NUM_USERS)
         acc, loc_error, map_error, distortion, dist_error, density_error = test(test_loader, TEST_EPOCHS, PRIVATIZER, gap_privatizer_optimizer, gap_privatizer, codebook, CODEBOOK_MULTIPLIER, utility_loss, privatizer_loss, sigma_dp, NORM_CLIP, SIGMA, adversary, MAP_PARAMS, NUM_GRIDS, BATCH_SIZE, NUM_USERS)
 
         RESULT_FILENAME = PRIVATIZER+".csv"
