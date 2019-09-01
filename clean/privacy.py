@@ -130,25 +130,22 @@ def make_privatizer_loss(map_params, num_grids, batch_size, utility_weights, rho
         l2 = (x.view(batch_size,-1)-y.view(batch_size,-1)).pow(2).sum(1).pow(0.5).mean() # average distance
         # l3 = (y[:,:,12:14]-x[:,:,12:14]).pow(2).mean() # mean squared error
         l3 = (y[:,:,12:14]-x[:,:,12:14]).pow(2).sum(1).pow(0.5).mean() # average distance
-        print(l2.item(),l3.item())
         cx,_,_ = density_count(x,num_grids)
         cy,_,_ = density_count(y,num_grids)
         l4 = ((abs(cx-cy)).sum()+(cx.sum()-cy.sum()))/(2*cx.sum())
         l6 = density_loss(x,y, batch_size)
         return l1, l2, l3, l4, l6
-    def privatizer_loss(x,y,u,uhat):
+    def privatizer_loss(x,y,u,uhat,lochat):
         l1, l2, l3, l4, l6 = utility_loss(x,y)
-        l = torch.nn.CrossEntropyLoss()
-        l5 = l(uhat,u)
         w1,w2,w3,w4 = utility_weights
-        total_loss = rho*(w1*l1+w2*l2+w3*l3+w4*l6)-(1-rho)*l5
+        total_loss = rho*(w1*l1+w2*l2+w3*l3+w4*l6)-(1-rho)*adversary_loss(u,x,uhat,lochat)
         return total_loss
     return utility_loss, privatizer_loss
 
 def make_adversary_loss(privacy_weights):
     def adversary_loss(u,x,uhat,lochat):
         l = torch.nn.CrossEntropyLoss()
-        dist = (x[:,:,12:14].squeeze()-lochat).pow(2).mean()
+        dist = (x[:,:,12:14].squeeze()-lochat).pow(2).sum(1).pow(0.5).mean()
         # spread = (x[:,:,12:14].squeeze().std(dim=0)-lochat.std(dim=0)).pow(2).mean()
         w1, w2 = privacy_weights
         return w1*l(uhat,u)+w2*dist
@@ -222,6 +219,10 @@ def MI_privatizer(x, codebook, codebook_multiplier, utility_loss):
 
 ## TRAIN_SPLIT
 def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_optimizer, codebook, codebook_multiplier, utility_loss, privatizer_loss, sigma_dp, norm_clip, sigma_gaussian, adversary_optimizer, adversary, adversary_loss, batch_size, num_users):
+    convergence_threshold = 0.001
+    previous_aloss, previous_ploss = -1, -1
+    train_adversary, train_privatizer = True, False
+
     for epoch in range(num_epochs):
         print("epoch",epoch)
         # iterate through the training dataset
@@ -229,7 +230,7 @@ def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_o
             # unpack batch
             x, u = batch['x'], batch['u'].squeeze()
             if x.shape[0] != batch_size:
-                break
+                return
             # generate privatized batch
             if PRIVATIZER == "gap_privatizer":
                 # reset privatizer gradients
@@ -250,27 +251,31 @@ def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_o
             uhat, lochat = estimate[:,:num_users], estimate[:,num_users:]
 
             # train adversary
-            if PRIVATIZER == "gap_privatizer":
-                if i % 5 == 0:
-                    aloss = adversary_loss(u,x,uhat,lochat)
-                    aloss.backward(retain_graph=True) # to do: is this necessary?
-                    torch.nn.utils.clip_grad_norm_(adversary.parameters(), 1000)
-                    adversary_optimizer.step()
-            else:
+            if train_adversary:
                 aloss = adversary_loss(u,x,uhat,lochat)
                 aloss.backward(retain_graph=True) # to do: is this necessary?
                 torch.nn.utils.clip_grad_norm_(adversary.parameters(), 1000)
                 adversary_optimizer.step()
+                if abs(aloss.item()-previous_aloss) < convergence_threshold:
+                    print("adversary converged", i)
+                    train_adversary, train_privatizer = False, True
+                    if PRIVATIZER != "gap_privatizer":
+                        return
+                previous_aloss = aloss.item()
 
             if PRIVATIZER == "gap_privatizer":
-                # evaluate utility loss
-                ploss = privatizer_loss(x,y,u,uhat)
-                # train privatizer
-                ploss.backward()
-                torch.nn.utils.clip_grad_norm_(gap_privatizer.parameters(), 1000)
-                gap_privatizer_optimizer.step()
-
-            # print(aloss.item())
+                if train_privatizer:
+                    # evaluate utility loss
+                    ploss = privatizer_loss(x,y,u,uhat,lochat)
+                    # train privatizer
+                    ploss.backward()
+                    torch.nn.utils.clip_grad_norm_(gap_privatizer.parameters(), 1000)
+                    gap_privatizer_optimizer.step()
+                    train_adversary, train_privatizer = True, False
+                    if abs(ploss.item()-previous_ploss) < convergence_threshold:
+                        print("privatizer converged",i)
+                        break
+                    previous_ploss = ploss.item()
 
             # print progress
             if i % 100 == 99:
@@ -279,6 +284,7 @@ def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_o
                 loss_utility = utility_loss(x,y)[:-1]
                 print(i+1,"aloss:",aloss.item(),"uloss:",sum(loss_utility).item())
                 if PRIVATIZER == "gap_privatizer":
+                    ploss = privatizer_loss(x,y,u,uhat,lochat)
                     print("ploss:",ploss.item())
 
     print("done", i)
@@ -317,7 +323,7 @@ def test(test_loader, test_epochs, PRIVATIZER, gap_privatizer_optimizer, gap_pri
             # Privacy Metric
             _, upred = torch.max(uhat.data,1)
             correct+=(upred==u).sum().item()/batch_size
-            loc_error += (x[:,:,12:14].squeeze()-lochat).pow(2).mean().item()
+            loc_error += (x[:,:,12:14].squeeze()-lochat).pow(2).sum(1).pow(0.5).mean().item()
 
             # Utility Metrics
             this_l1, this_l2, this_l3, this_l4, this_l6 = utility_loss(x,y)
@@ -380,23 +386,26 @@ if __name__ == '__main__':
 
     # uncomment one of these chunks to run a test
 
-    # ##small multipliers private, large multipliers emphasize utility
+    # small multipliers private, large multipliers emphasize utility
     # PRIVATIZER = "MI_privatizer"
     # EPSILON, SIGMA, RHO = 0, 0, 0
     # for CODEBOOK_MULTIPLIER in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
-    #
+
     # PRIVATIZER = "dp_privatizer"
     # SIGMA, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
-    # for EPSILON in [0.1,1,2,3,4,5,6,7,8,9,10]:
+    # # for EPSILON in [0.1,1,2,3,4,5,6,7,8,9,10]:
+    # for EPSILON in [10,20,30,40,50,60,70,80,90,100,110]:
 
-    PRIVATIZER = "noise_privatizer"
-    EPSILON, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
-    for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
+    # PRIVATIZER = "noise_privatizer"
+    # EPSILON, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
+    # for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
 
-    # ## rho of 0 is private, 1 is useful
-    # PRIVATIZER = "gap_privatizer"
-    # EPSILON, SIGMA, CODEBOOK_MULTIPLIER = 0, 0, 0
+    ## rho of 0 is private, 1 is useful
+    PRIVATIZER = "gap_privatizer"
+    EPSILON, SIGMA, CODEBOOK_MULTIPLIER = 0, 0, 0
     # for RHO in [0,0.001,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
+    NUM_EPOCHS = 10
+    for RHO in [0]:
 
         adversary, adversary_optimizer = make_adversary(NUM_FEATURES, NUM_UNITS, NUM_USERS)
         if PRIVATIZER == "gap_privatizer":
