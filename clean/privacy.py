@@ -219,9 +219,8 @@ def MI_privatizer(x, codebook, codebook_multiplier, utility_loss):
 
 ## TRAIN_SPLIT
 def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_optimizer, codebook, codebook_multiplier, utility_loss, privatizer_loss, sigma_dp, norm_clip, sigma_gaussian, adversary_optimizer, adversary, adversary_loss, batch_size, num_users):
-    convergence_threshold = 0.001
+    convergence_threshold = 0.0001
     previous_aloss, previous_ploss = -1, -1
-    train_adversary, train_privatizer = True, False
 
     for epoch in range(num_epochs):
         print("epoch",epoch)
@@ -251,34 +250,33 @@ def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_o
             uhat, lochat = estimate[:,:num_users], estimate[:,num_users:]
 
             # train adversary
-            if train_adversary:
+            if i%10 < 5:
                 aloss = adversary_loss(u,x,uhat,lochat)
                 aloss.backward(retain_graph=True) # to do: is this necessary?
                 torch.nn.utils.clip_grad_norm_(adversary.parameters(), 1000)
                 adversary_optimizer.step()
                 if abs(aloss.item()-previous_aloss) < convergence_threshold:
                     print("adversary converged", i)
-                    train_adversary, train_privatizer = False, True
                     if PRIVATIZER != "gap_privatizer":
                         return
                 previous_aloss = aloss.item()
 
+            # train privatizer
             if PRIVATIZER == "gap_privatizer":
-                if train_privatizer:
-                    # evaluate utility loss
+                if i%10 >= 5:
                     ploss = privatizer_loss(x,y,u,uhat,lochat)
-                    # train privatizer
                     ploss.backward()
                     torch.nn.utils.clip_grad_norm_(gap_privatizer.parameters(), 1000)
                     gap_privatizer_optimizer.step()
-                    train_adversary, train_privatizer = True, False
                     if abs(ploss.item()-previous_ploss) < convergence_threshold:
                         print("privatizer converged",i)
-                        break
+                        if abs(aloss.item()-previous_aloss) < convergence_threshold:
+                            print("done", i)
+                            return
                     previous_ploss = ploss.item()
 
             # print progress
-            if i % 100 == 99:
+            if i % 50 == 49:
                 # evaluate utility loss
                 aloss = adversary_loss(u,x,uhat,lochat)
                 loss_utility = utility_loss(x,y)[:-1]
