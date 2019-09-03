@@ -229,7 +229,7 @@ def train(num_epochs, train_loader, PRIVATIZER, gap_privatizer, gap_privatizer_o
             # unpack batch
             x, u = batch['x'], batch['u'].squeeze()
             if x.shape[0] != batch_size:
-                return
+                break
             # generate privatized batch
             if PRIVATIZER == "gap_privatizer":
                 # reset privatizer gradients
@@ -391,19 +391,16 @@ if __name__ == '__main__':
 
     # PRIVATIZER = "dp_privatizer"
     # SIGMA, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
-    # # for EPSILON in [0.1,1,2,3,4,5,6,7,8,9,10]:
-    # for EPSILON in [10,20,30,40,50,60,70,80,90,100,110]:
+    # for EPSILON in [0.1,1,2,3,4,5,6,7,8,9,10]:
 
     # PRIVATIZER = "noise_privatizer"
     # EPSILON, RHO, CODEBOOK_MULTIPLIER = 0, 0, 0
     # for SIGMA in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
 
     ## rho of 0 is private, 1 is useful
-    PRIVATIZER = "gap_privatizer"
-    EPSILON, SIGMA, CODEBOOK_MULTIPLIER = 0, 0, 0
+    # PRIVATIZER = "gap_privatizer"
+    # EPSILON, SIGMA, CODEBOOK_MULTIPLIER = 0, 0, 0
     # for RHO in [0,0.001,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]:
-    NUM_EPOCHS = 10
-    for RHO in [0]:
 
         adversary, adversary_optimizer = make_adversary(NUM_FEATURES, NUM_UNITS, NUM_USERS)
         if PRIVATIZER == "gap_privatizer":
